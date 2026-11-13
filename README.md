@@ -6,15 +6,15 @@ A RuneScape 3 plugin that brings back the blue interface from before the overhau
 
 ## What it changes
 
-- **Docked windows**: the frames, headers and backgrounds of the windows you dock around the game screen (Skills, Friends, Chat, Worn Equipment and so on).
-- **Every window's background**, including big windows like Settings and the Bank, and windows made by other plugins.
+- **Docked windows**: the frames, headers and backgrounds of the windows you dock around the game screen (Skills, Friends, Chat, Worn Equipment and so on), and windows built from the same pieces, like the Bank.
+- **Every window's background**, including big windows like Settings, the Bank's item area, and windows made by other plugins.
 - **Tooltips.**
 
 It turns on when the plugin loads, and the game's own look comes back when the plugin is turned off.
 
 ## What it leaves alone, and why
 
-- **The frames of big windows** like Settings and the Bank. Their old images are a different size from the new ones, and swapping them breaks the layout. Backgrounds are fine everywhere, as the game tiles or stretches them to fill whatever space there is.
+- **The frames of big windows** like Settings. Their old images are a different size from the new ones, and swapping them breaks the layout. Backgrounds are fine everywhere, as the game tiles or stretches them to fill whatever space there is.
 - **Window contents**: buttons, tabs, list rows, dropdowns, sliders and scrollbars. The game changes these all the time (hover and selected states, rebuilt lists), and each change would show the new image until the plugin swaps it again, so they'd flash.
 
 ## How it works
