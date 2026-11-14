@@ -60,20 +60,30 @@ function interface_walker.visit_static(interface_id, static_id, callback, visibl
     return true, true
 end
 
--- Both the static components and the ones the game creates while running, like list rows.
+-- Both the static components and the ones the game creates while running, like list rows. With
+-- visible_only, hidden components are skipped along with everything inside them.
 ---@param interface_id integer
 ---@param callback fun(component: ui.Component)
-function interface_walker.each_component(interface_id, callback)
+---@param visible_only boolean?
+---@return integer # How many components were looked up.
+function interface_walker.each_component(interface_id, callback, visible_only)
+    local looked_up = 0
+    local function count_and_visit(component)
+        looked_up = looked_up + 1
+        callback(component)
+    end
     local static_id = 0
     local missing_in_a_row = 0
     while missing_in_a_row < interface_walker.allowed_missing_ids do
-        if interface_walker.visit_static(interface_id, static_id, callback) then
+        looked_up = looked_up + 1
+        if interface_walker.visit_static(interface_id, static_id, count_and_visit, visible_only) then
             missing_in_a_row = 0
         else
             missing_in_a_row = missing_in_a_row + 1
         end
         static_id = static_id + 1
     end
+    return looked_up
 end
 
 -- Identifies a component by its IDs, which stay the same when the game creates the component
