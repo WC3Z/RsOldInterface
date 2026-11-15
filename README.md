@@ -7,6 +7,7 @@ A RuneScape 3 plugin that brings back the blue interface from before the overhau
 ## What it changes
 
 - **Docked windows**: the frames, headers and backgrounds of the windows you dock around the game screen (Skills, Friends, Chat, Worn Equipment and so on), and windows built from the same pieces, like the Bank.
+- **The Bank**: its window frame and title bar, the frames around the item area and side panels, and the bank tabs.
 - **Every window's background**, including big windows like Settings, the Bank's item area, and windows made by other plugins.
 - **Window contents**: buttons, tabs, list rows, dropdowns, checkboxes, input boxes, sliders and scrollbars, including the newer controls in windows like Settings' Gameplay tab.
 - **Colours**: plain coloured panels, like the cards in Settings' lists, get the old blue.
@@ -16,7 +17,7 @@ It turns on when the plugin loads, and the game's own look comes back when the p
 
 ## What it leaves alone, and why
 
-- **The frames of big windows** like Settings. Their old images are a different size from the new ones, and swapping them breaks the layout. Backgrounds are fine everywhere, as the game tiles or stretches them to fill whatever space there is.
+- **The frames of other big windows** like Settings. Their old images are a different size from the new ones, and swapping them breaks the layout. Backgrounds are fine everywhere, as the game tiles or stretches them to fill whatever space there is.
 - **Parts added after the overhaul**, which have no old version, like the search box in Settings. Where the game's mobile version still has the old look, that's used instead (Settings' category headers).
 - **Text colours**, for now.
 

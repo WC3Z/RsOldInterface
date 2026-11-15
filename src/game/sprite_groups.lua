@@ -15,7 +15,14 @@ sprite_groups.all = {
     {
         -- Docked windows' tabs change sprite when clicked, so they come before docked_windows.
         name = "tabs",
-        patterns = { "^RS3_CHILD_TAB_SELECTED$", "^RS3_CHILD_TAB_UNSELECTED$", "^RS3_PARENT_TAB_" },
+        patterns = {
+            "^RS3_CHILD_TAB_SELECTED$",
+            "^RS3_CHILD_TAB_UNSELECTED$",
+            "^RS3_PARENT_TAB_",
+            "^RS3_PARENT_CONTENT_TILEABLE_TAB_%d+$",
+            "^BANK_TABS_%d$",
+            "^BANK_TABS_HORIZONTAL_%d$",
+        },
         window_contents = true,
     },
     {
@@ -31,6 +38,19 @@ sprite_groups.all = {
         window_contents = false,
     },
     {
+        -- Modal windows like the Bank: the frame and title bar.
+        name = "modal_windows",
+        patterns = { "^RS3_MAIN_MODAL_" },
+        window_contents = false,
+    },
+    {
+        -- The edges and corners of the frames inside windows, like around the Bank's item area and
+        -- side panels.
+        name = "content_frames",
+        patterns = { "^RS3_PARENT_CONTENT_TAB_FRAME_%d$" },
+        window_contents = false,
+    },
+    {
         name = "tooltips",
         patterns = { "^RS3_TOOLTIP_FILL_" },
         window_contents = false,
@@ -42,7 +62,7 @@ sprite_groups.all = {
     },
     {
         name = "buttons",
-        patterns = { "^RS3_BTN_", "^RS3_BUTTON_CLOSE_", "^RS3_BUTTON_LOGOUT_" },
+        patterns = { "^RS3_BTN_", "^RS3_BUTTON_CLOSE_", "^RS3_BUTTON_LOGOUT_", "^BUTTON_30PX_[A-Z]+$" },
         window_contents = true,
     },
     {
@@ -97,6 +117,17 @@ function sprite_groups.names(with_window_contents)
         end
     end
     return names
+end
+
+---@param group_name string
+---@return boolean
+function sprite_groups.is_window_contents(group_name)
+    for _, group in ipairs(sprite_groups.all) do
+        if group.name == group_name then
+            return group.window_contents
+        end
+    end
+    return false
 end
 
 ---@param sprite_name string

@@ -51,6 +51,10 @@ local watch = nil
 -- sprite's image is looked up by name.
 ---@type table<integer, PluginResource|integer|false>
 local image_cache = {}
+-- Whether the game changes each swapped sprite all the time (see SpriteGroup.window_contents), by
+-- sprite ID.
+---@type table<integer, boolean>
+local changes_often_cache = {}
 
 -- Each swapped part's component IDs, field, and the game sprite it had, keyed by
 -- interface_walker.component_key and the field. When the game rebuilds a component it keeps its
@@ -63,9 +67,19 @@ local image_cache = {}
 ---@field field string
 ---@field original_sprite_id integer
 ---@field applied_sprite_id integer What the part reports after the swap: -1 for the plugin's image, or the stand-in's ID.
+---@field visible boolean Whether it was showing when last looked at.
+---@field changes_often boolean Whether the game changes it all the time, like a button's hover state.
 
 ---@type table<string, SwappedPart>
 local swapped_parts = {}
+
+-- Only showing parts the game changes all the time (like buttons, which have hover states) are
+-- checked every frame. The rest, hidden or rarely changed like window frames, are checked this
+-- many a frame, in turns, from a list of them made at the start of each round.
+local other_parts_per_frame = 150
+---@type string[]
+local other_round = {}
+local other_round_index = 1
 
 -- Each recoloured rectangle's IDs, the game's colour and the old one it got, keyed like
 -- swapped_parts.
@@ -79,6 +93,11 @@ local swapped_parts = {}
 
 ---@type table<string, RecolouredRectangle>
 local recoloured_rectangles = {}
+
+-- DEBUG: what the swapping costs since the last stats line (see activity_log.stats).
+local stats_interval = 200
+local stats = { frames = 0, swapped_parts = 0, visible_parts = 0, recoloured = 0, reswapped = 0, rebuilt = {} }
+local stats_logged_at = 0
 
 -- DEBUG: the update each interface last had a new swap logged in.
 ---@type table<integer, integer>
@@ -106,6 +125,7 @@ local function image_for(sprite_id)
         local group = found and sprite_name and sprite_groups.group_of(sprite_name)
         if group and swapped_groups[group] then
             image = frames and (frames[sprite_name] or frames[sprite_name .. ".png"]) or stand_in_for(sprite_name) or false
+            changes_often_cache[sprite_id] = sprite_groups.is_window_contents(group)
         end
         image_cache[sprite_id] = image
     end
@@ -159,6 +179,12 @@ local function swap_part(component, field)
     end
     local sprite_id = part.spriteID
     if sprite_id == -1 then
+        -- Already swapped: it may have shown since it was last looked at, and then needs checking
+        -- every frame again.
+        local swapped = swapped_parts[interface_walker.component_key(component) .. ":" .. field]
+        if swapped and not swapped.visible then
+            swapped.visible = component.visibleGlobal
+        end
         return true
     end
     local image = image_for(sprite_id)
@@ -189,6 +215,8 @@ local function swap_part(component, field)
         field = field,
         original_sprite_id = sprite_id,
         applied_sprite_id = applied_id(image),
+        visible = component.visibleGlobal,
+        changes_often = changes_often_cache[sprite_id] == true,
     }
     return true
 end
@@ -261,14 +289,14 @@ local function find_component(ids)
 end
 
 ---@param swapped SwappedPart
----@return (ui.Sprite|ui.SpriteData)?
+---@return (ui.Sprite|ui.SpriteData)?, ui.Component?
 local function find_swapped(swapped)
     local component = find_component(swapped)
     local fields = component and sprite_parts[component.type]
     if fields == nil then
-        return nil
+        return nil, nil
     end
-    return part_of(component, swapped.field)
+    return part_of(component, swapped.field), component
 end
 
 ---@param recoloured RecolouredRectangle
@@ -282,31 +310,97 @@ local function find_recoloured(recoloured)
     return nil
 end
 
--- Just before each frame is drawn, swaps again the parts the game has given a sprite since: the
--- same one when it rebuilds them (like the tab bar when switching tabs), or another one when their
--- state changes (like a button's hover sprite). So the game's sprites don't show for a frame.
--- Parts that are gone are forgotten; if their window opens again, the walk finds them.
-local function reswap_changed_parts()
-    for key, swapped in pairs(swapped_parts) do
-        local part = find_swapped(swapped)
-        if part == nil then
-            swapped_parts[key] = nil
-        else
-            local sprite_id = part.spriteID
-            local image = sprite_id ~= -1 and image_for(sprite_id)
-            if image and set_sprite(part, image) then
-                swapped.applied_sprite_id = applied_id(image)
-                -- The same sprite again means the game rebuilt the component (a different one is
-                -- just a state change, like hovering). Then it's likely rebuilding the interface,
-                -- and new parts of it may follow.
-                if sprite_id == swapped.original_sprite_id and watch then
-                    interface_watcher.watch_closely(watch, swapped.interface_id, "rebuilt")
-                end
-                -- What the game shows now is what it should get back when stopped.
-                swapped.original_sprite_id = sprite_id
-            end
+---@param swapped SwappedPart
+local function is_checked_every_frame(swapped)
+    return swapped.visible and swapped.changes_often
+end
+
+local function log_stats()
+    stats.frames = stats.frames + 1
+    if watch == nil or watch.update_number - stats_logged_at < stats_interval then
+        return
+    end
+    stats_logged_at = watch.update_number
+    for _, swapped in pairs(swapped_parts) do
+        stats.swapped_parts = stats.swapped_parts + 1
+        if is_checked_every_frame(swapped) then
+            stats.visible_parts = stats.visible_parts + 1
         end
     end
+    for _ in pairs(recoloured_rectangles) do
+        stats.recoloured = stats.recoloured + 1
+    end
+    activity_log.stats(watch.update_number, stats, watch.closely_watched)
+    stats = { frames = 0, swapped_parts = 0, visible_parts = 0, recoloured = 0, reswapped = 0, rebuilt = {} }
+end
+
+-- Swaps a part again if the game has given it a sprite since: the same one when it rebuilds it
+-- (like the tab bar when switching tabs), or another one when its state changes (like a button's
+-- hover sprite). Parts that are gone are forgotten; if their window opens again, the walk finds
+-- them.
+---@param key string
+---@param swapped SwappedPart
+local function reswap_if_changed(key, swapped)
+    local part, component = find_swapped(swapped)
+    if part == nil or component == nil then
+        swapped_parts[key] = nil
+        return
+    end
+    swapped.visible = component.visibleGlobal
+    local sprite_id = part.spriteID
+    local image = sprite_id ~= -1 and image_for(sprite_id)
+    if image and set_sprite(part, image) then
+        if activity_log.enabled then
+            stats.reswapped = stats.reswapped + 1
+            if sprite_id == swapped.original_sprite_id then
+                stats.rebuilt[swapped.interface_id] = (stats.rebuilt[swapped.interface_id] or 0) + 1
+            end
+        end
+        swapped.applied_sprite_id = applied_id(image)
+        -- The same sprite again means the game rebuilt the component (a different one is just a
+        -- state change, like hovering). Then it's likely rebuilding the interface, and new parts
+        -- of it may follow.
+        if sprite_id == swapped.original_sprite_id and watch then
+            interface_watcher.watch_closely(watch, swapped.interface_id, "rebuilt")
+        end
+        -- What the game shows now is what it should get back when stopped.
+        swapped.original_sprite_id = sprite_id
+    end
+end
+
+-- The parts not checked every frame get checked in turns, a few each frame. A hidden part that
+-- shows comes back to the every-frame check when the walk next sees it, or its turn comes.
+local function reswap_some_other_parts()
+    if other_round_index > #other_round then
+        other_round = {}
+        for key, swapped in pairs(swapped_parts) do
+            if not is_checked_every_frame(swapped) then
+                other_round[#other_round + 1] = key
+            end
+        end
+        other_round_index = 1
+    end
+    local last = math.min(other_round_index + other_parts_per_frame - 1, #other_round)
+    for index = other_round_index, last do
+        local key = other_round[index]
+        local swapped = swapped_parts[key]
+        if swapped and not is_checked_every_frame(swapped) then
+            reswap_if_changed(key, swapped)
+        end
+    end
+    other_round_index = last + 1
+end
+
+-- Just before each frame is drawn, swaps again the parts the game has given a sprite since, so
+-- the game's sprites don't show for a frame: every showing part the game changes all the time,
+-- and some of the rest.
+local function reswap_changed_parts()
+    for key, swapped in pairs(swapped_parts) do
+        if is_checked_every_frame(swapped) then
+            reswap_if_changed(key, swapped)
+        end
+    end
+    reswap_some_other_parts()
     for key, recoloured in pairs(recoloured_rectangles) do
         local component = find_recoloured(recoloured)
         if component == nil then
@@ -320,6 +414,9 @@ local function reswap_changed_parts()
             end
         end
     end
+    if activity_log.enabled then
+        log_stats()
+    end
 end
 
 -- Only parts still showing what the plugin set get the game's sprite back.
@@ -331,6 +428,8 @@ local function restore_swapped_parts()
         end
     end
     swapped_parts = {}
+    other_round = {}
+    other_round_index = 1
     for _, recoloured in pairs(recoloured_rectangles) do
         local component = find_recoloured(recoloured)
         if component and component.rgb == recoloured.applied_rgb then
@@ -346,6 +445,7 @@ function sprite_swapper.start(groups)
     sprite_swapper.stop()
     swapped_groups = groups
     image_cache = {}
+    changes_often_cache = {}
     watch = interface_watcher.start(subscription_name, swap)
     Event.Draw.Subscribe(draw_subscription_name, reswap_changed_parts)
 end

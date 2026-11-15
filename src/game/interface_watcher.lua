@@ -22,8 +22,9 @@ local activity_log = require("src/debug/activity_log")
 
 local interface_watcher = {}
 
--- Enough to go over every loaded window several times a second without costing frames.
-local components_per_update = 1500
+-- Enough to go over every loaded window about once a second. Windows that just opened, showed or
+-- were rebuilt don't wait for it: they're watched closely.
+local components_per_update = 500
 -- Every this many passes is a full one, which also walks hidden components and interfaces that
 -- had nothing to change in their last pass.
 local full_pass_interval = 5
