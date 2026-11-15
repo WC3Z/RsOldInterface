@@ -7,6 +7,7 @@ A RuneScape 3 plugin that brings back the blue interface from before the overhau
 ## What it changes
 
 - **Docked windows**: the frames, headers and backgrounds of the windows you dock around the game screen (Skills, Friends, Chat, Worn Equipment and so on), and windows built from the same pieces, like the Bank.
+- **Big windows** like Settings and plugin windows: the frame and title banner.
 - **The Bank**: its window frame and title bar, the frames around the item area and side panels, and the bank tabs.
 - **Every window's background**, including big windows like Settings, the Bank's item area, and windows made by other plugins.
 - **Window contents**: buttons, tabs, list rows, dropdowns, checkboxes, input boxes, sliders and scrollbars, including the newer controls in windows like Settings' Gameplay tab.
@@ -17,7 +18,6 @@ It turns on when the plugin loads, and the game's own look comes back when the p
 
 ## What it leaves alone, and why
 
-- **The frames of other big windows** like Settings. Their old images are a different size from the new ones, and swapping them breaks the layout. Backgrounds are fine everywhere, as the game tiles or stretches them to fill whatever space there is.
 - **Parts added after the overhaul**, which have no old version, like the search box in Settings. Where the game's mobile version still has the old look, that's used instead (Settings' category headers).
 - **Text colours**, for now.
 
@@ -25,12 +25,12 @@ It turns on when the plugin loads, and the game's own look comes back when the p
 
 Plugins can't replace a game image everywhere at once, only on each part of a window. So the plugin keeps walking the game's open windows, a slice every client update, and swaps the images it has an old version of. Windows that just opened or were just shown are walked first. Parts it has already swapped are checked again just before every frame is drawn, so when the game rebuilds them (like the tab bar when switching tabs) or changes their state (like hovering a button), they don't flash.
 
-The old images are in [`resources/frames/`](resources/frames), each named after the game sprite it replaces. They come from a game cache from before the overhaul (cache 2409 in the [OpenRS2 archive](https://archive.openrs2.org/)), and some are stretched by a pixel or two to fit the current sprites' sizes. The old colours come from the game's own skin colour lists: the mobile skin still has them.
+The old images are in [`resources/frames/`](resources/frames), each named after the game sprite it replaces. They come from a game cache from before the overhaul (cache 2409 in the [OpenRS2 archive](https://archive.openrs2.org/)), and some are stretched by a pixel or two to fit the current sprites' sizes. Big windows' frames, tabs and title banners are also cut to the current pieces' shapes, as the old ones were drawn for a different window layout. The old colours come from the game's own skin colour lists: the mobile skin still has them.
 
 ## Known issues
 
 - A window can show the new look for a moment the first time it opens, until the plugin gets to it.
-- New images in `resources/` only load after restarting the game client, not when reloading the plugin.
+- New images in `resources/` only load after running `prf` in the game's console or restarting the client, not when reloading the plugin.
 
 ## Building
 

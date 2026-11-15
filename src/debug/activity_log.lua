@@ -10,7 +10,7 @@ local lines_left = { activity = 120, unswapped = 80, interactive = 60, rectangle
 local unswapped_seen = {}
 
 -- Sprites that look like interface parts rather than icons.
-local interface_part_words = { "BTN", "BUTTON", "CONTAINER", "DROPDOWN", "FRAME", "TAB", "INPUT", "SLIDER", "SCROLL", "PANEL", "TILE", "CORNER", "BACKING", "HEADER", "BOX" }
+local interface_part_words = { "BTN", "BUTTON", "CONTAINER", "DROPDOWN", "FRAME", "TAB", "INPUT", "SLIDER", "SCROLL", "PANEL", "TILE", "CORNER", "BACKING", "HEADER", "BOX", "BANNER", "LINE", "BAR", "EDGE" }
 
 ---@param interface_id integer
 local function interface_name(interface_id)
@@ -45,12 +45,14 @@ function activity_log.first_swap(update_number, interface_id)
     end
 end
 
--- A sprite that's showing but has no old image. The field is the part of an interactive component
--- it's in, or empty for a sprite component.
+-- A sprite that's showing but has no old image, and the size it's drawn at. The field is the part
+-- of an interactive component it's in, or empty for a sprite component.
 ---@param interface_id integer
 ---@param sprite_id integer
 ---@param field string
-function activity_log.unswapped(interface_id, sprite_id, field)
+---@param width integer
+---@param height integer
+function activity_log.unswapped(interface_id, sprite_id, field, width, height)
     if not activity_log.enabled then
         return
     end
@@ -62,7 +64,7 @@ function activity_log.unswapped(interface_id, sprite_id, field)
     for _, word in ipairs(interface_part_words) do
         if sprite_name:find(word) then
             local part = field ~= "" and (" (" .. field .. ")") or ""
-            print_limited("unswapped", string.format("not swapped: %s (%d)%s in %s", sprite_name, sprite_id, part, interface_name(interface_id)))
+            print_limited("unswapped", string.format("not swapped: %s (%d)%s %dx%d in %s", sprite_name, sprite_id, part, width, height, interface_name(interface_id)))
             return
         end
     end

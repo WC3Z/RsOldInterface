@@ -1,8 +1,5 @@
 -- The sprites the plugin can swap, in groups that can be turned on and off separately (like from
 -- a settings page later). A sprite belongs to the first group with a matching name pattern.
---
--- The frames of big windows like Settings aren't in any group: their old sprites are different
--- sizes and break the layout.
 local sprite_groups = {}
 
 ---@class SpriteGroup
@@ -35,6 +32,12 @@ sprite_groups.all = {
         -- (piece 4), which the game stretches to fill the frame, so they fit whatever their size.
         name = "backgrounds",
         patterns = { "^RS3_[A-Z_]*CONTENT_TILE$", "^RS3_CONTENT_FRAME_4$", "^RS3_PARENT_CONTENT_TAB_FRAME_4$" },
+        window_contents = false,
+    },
+    {
+        -- Big windows like Settings, and plugin windows: the frame and the title banner.
+        name = "big_windows",
+        patterns = { "^RS3_PARENT_FRAME_", "^RS3_PARENT_BANNER_" },
         window_contents = false,
     },
     {

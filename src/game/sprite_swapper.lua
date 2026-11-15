@@ -191,7 +191,7 @@ local function swap_part(component, field)
     if not image then
         -- Only in interfaces that just loaded, showed or were rebuilt, not everything at startup.
         if activity_log.enabled and watch and watch.closely_watched[component.interfaceID] and component.visibleGlobal then
-            activity_log.unswapped(component.interfaceID, sprite_id, field)
+            activity_log.unswapped(component.interfaceID, sprite_id, field, component.width, component.height)
         end
         return false
     end
