@@ -16,8 +16,10 @@ local interface_watcher = require("src/game/interface_watcher")
 local sprite_groups = require("src/game/sprite_groups")
 local skin_palette = require("src/game/skin_palette")
 local guard = require("src/game/guard")
-local activity_log = require("src/debug/activity_log")
-local profile = require("src/debug/profile")
+local debug_tools = require("src/game/debug_tools")
+
+local activity_log = debug_tools.activity_log
+local profile = debug_tools.profile
 
 local sprite_swapper = {}
 

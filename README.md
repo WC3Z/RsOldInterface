@@ -54,7 +54,7 @@ cd tests && npm install && npm test
 
 ## Building
 
-`./build.sh` copies the plugin into `Old-Interface/`. `./build.sh release` makes a release build and zips it into `Old-Interface.zip`. To also copy dev builds into the game's `dev_plugins` folder, create `build.local.sh` (gitignored) with:
+`./build.sh` copies the plugin into `Old-Interface/`. `./build.sh release` makes a release build and zips it into `Old-Interface.zip`. Release builds leave out the debug tools in `src/debug`. To also copy dev builds into the game's `dev_plugins` folder, create `build.local.sh` (gitignored) with:
 
 ```bash
 dev_plugins_dir="$HOME/path/to/RuneScape-BETA/dev_plugins"

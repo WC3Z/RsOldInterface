@@ -2,8 +2,9 @@
 # Copies the plugin into Old-Interface/, leaving out the tests.
 #
 #   ./build.sh           dev build, plugin.json as it is in the repo
-#   ./build.sh release   release build, without console commands; optional permissions become required. Also
-#                        zipped into Old-Interface.zip, ready to upload
+#   ./build.sh release   release build, without console commands; optional permissions become required and
+#                        the debug tools (src/debug) are left out. Also zipped into Old-Interface.zip,
+#                        ready to upload
 #
 # To also copy dev builds into your game's dev_plugins folder, create
 # build.local.sh (gitignored) with e.g.:
@@ -41,6 +42,7 @@ if [[ "$build_type" == "release" ]]; then
         echo "Could not remove every ExecuteConsoleCommand from $out_dir" >&2
         exit 1
     fi
+    rm -rf "$out_dir/src/debug"
     sed -i 's/"optionalPermissions"/"requiredPermissions"/' "$out_dir/plugin.json"
     if grep -q '"optionalPermissions"' "$out_dir/plugin.json"; then
         echo "Could not make the permissions required in $out_dir/plugin.json" >&2

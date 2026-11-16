@@ -30,8 +30,10 @@
 -- component can crash the client.
 local interface_walker = require("src/game/interface_walker")
 local guard = require("src/game/guard")
-local activity_log = require("src/debug/activity_log")
-local profile = require("src/debug/profile")
+local debug_tools = require("src/game/debug_tools")
+
+local activity_log = debug_tools.activity_log
+local profile = debug_tools.profile
 
 local interface_watcher = {}
 
