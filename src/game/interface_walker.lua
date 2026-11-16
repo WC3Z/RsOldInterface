@@ -2,7 +2,7 @@
 local interface_walker = {}
 
 -- The highest interface ID in the game data is 1946 (November 2026), with room for new ones.
-local last_interface_id = 2500
+interface_walker.last_interface_id = 2500
 -- Static component IDs run from 0 without gaps (one interface in the game data skips one),
 -- so walks stop after this many missing IDs in a row.
 interface_walker.allowed_missing_ids = 8
@@ -14,15 +14,6 @@ local collection_types = {
     [ui.ComponentType.PAGED_LAYER] = true,
     [ui.ComponentType.GROUP_BOX] = true,
 }
-
----@param callback fun(interface_id: integer)
-function interface_walker.each_loaded_interface(callback)
-    for interface_id = 0, last_interface_id do
-        if ui.Interfaces:GetInterface(interface_id) then
-            callback(interface_id)
-        end
-    end
-end
 
 -- The children the game created while running, like list rows, and theirs in turn.
 ---@param component ui.Component
@@ -60,20 +51,142 @@ function interface_walker.visit_static(interface_id, static_id, callback, visibl
     return true, true
 end
 
--- Both the static components and the ones the game creates while running, like list rows.
+-- Both the static components and the ones the game creates while running, like list rows. With
+-- visible_only, hidden components are skipped along with everything inside them.
 ---@param interface_id integer
 ---@param callback fun(component: ui.Component)
-function interface_walker.each_component(interface_id, callback)
+---@param visible_only boolean?
+---@return integer # How many components were looked up.
+function interface_walker.each_component(interface_id, callback, visible_only)
+    local looked_up = 0
+    local function count_and_visit(component)
+        looked_up = looked_up + 1
+        callback(component)
+    end
     local static_id = 0
     local missing_in_a_row = 0
     while missing_in_a_row < interface_walker.allowed_missing_ids do
-        if interface_walker.visit_static(interface_id, static_id, callback) then
+        looked_up = looked_up + 1
+        if interface_walker.visit_static(interface_id, static_id, count_and_visit, visible_only) then
             missing_in_a_row = 0
         else
             missing_in_a_row = missing_in_a_row + 1
         end
         static_id = static_id + 1
     end
+    return looked_up
+end
+
+---@class StaticTree An interface's static components as a tree, which stays the same while it's loaded.
+---@field order integer[] Static IDs, each parent before its children.
+---@field after integer[] For each place in `order`, the place after that component and everything inside it.
+---@field roots integer[] The static IDs with no parent in the interface.
+
+---@param component ui.Component
+---@param interface_id integer
+---@return integer? # The static ID of the component's parent, if that's in the same interface.
+local function parent_static_id(component, interface_id)
+    local parent = component.parentStatic
+    if parent ~= nil and parent.interfaceID == interface_id then
+        return parent.staticID
+    end
+    return nil
+end
+
+-- Reads how an interface's static components sit inside each other. A component whose parent
+-- can't be told counts as a root.
+---@param interface_id integer
+---@return StaticTree
+function interface_walker.static_tree(interface_id)
+    local static_ids = {}
+    local parents = {}
+    local static_id = 0
+    local missing_in_a_row = 0
+    while missing_in_a_row < interface_walker.allowed_missing_ids do
+        local component = ui.Interfaces:GetComponent(interface_id, static_id)
+        if component then
+            missing_in_a_row = 0
+            static_ids[#static_ids + 1] = static_id
+            local found, parent_id = pcall(parent_static_id, component, interface_id)
+            if found and parent_id ~= nil and parent_id ~= static_id then
+                parents[static_id] = parent_id
+            end
+        else
+            missing_in_a_row = missing_in_a_row + 1
+        end
+        static_id = static_id + 1
+    end
+
+    local is_static = {}
+    for _, id in ipairs(static_ids) do
+        is_static[id] = true
+    end
+    local children = {}
+    local roots = {}
+    for _, id in ipairs(static_ids) do
+        local parent_id = parents[id]
+        if parent_id ~= nil and is_static[parent_id] then
+            children[parent_id] = children[parent_id] or {}
+            table.insert(children[parent_id], id)
+        else
+            roots[#roots + 1] = id
+        end
+    end
+
+    local order = {}
+    local after = {}
+    local placed = {}
+    local function place(id)
+        if placed[id] then
+            return
+        end
+        placed[id] = true
+        local index = #order + 1
+        order[index] = id
+        for _, child_id in ipairs(children[id] or {}) do
+            place(child_id)
+        end
+        after[index] = #order + 1
+    end
+    for _, id in ipairs(roots) do
+        place(id)
+    end
+    -- Anything left sits in a loop of parents, which shouldn't happen: walk it as roots.
+    for _, id in ipairs(static_ids) do
+        place(id)
+    end
+    return { order = order, after = after, roots = roots }
+end
+
+-- Visits an interface's showing components, from a place in its tree, until the budget of lookups
+-- runs out. A hidden static component is skipped along with every static component inside it.
+---@param interface_id integer
+---@param tree StaticTree
+---@param callback fun(component: ui.Component)
+---@param index integer Where in tree.order to start (1 for the whole interface).
+---@param budget number
+---@return integer? next_index Where to carry on, or nil when the interface is done.
+---@return integer looked_up
+function interface_walker.walk_showing(interface_id, tree, callback, index, budget)
+    local order, after = tree.order, tree.after
+    local looked_up = 0
+    local function count_and_visit(component)
+        looked_up = looked_up + 1
+        callback(component)
+    end
+    local count = #order
+    while index <= count and looked_up < budget do
+        local component = ui.Interfaces:GetComponent(interface_id, order[index])
+        looked_up = looked_up + 1
+        if component and component.visibleGlobal then
+            callback(component)
+            each_dynamic_child(component, count_and_visit)
+            index = index + 1
+        else
+            index = after[index]
+        end
+    end
+    return index <= count and index or nil, looked_up
 end
 
 -- Identifies a component by its IDs, which stay the same when the game creates the component
