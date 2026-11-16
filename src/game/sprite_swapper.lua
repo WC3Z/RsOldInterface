@@ -209,10 +209,23 @@ end
 -- Big windows' frame is built in strips, and the strip between the title and the tabs only has
 -- side pieces, each filling it: the old frame had no border there, it starts at the curls by the
 -- tabs. Those side pieces draw the window's dark fill without the edge line.
-local side_tile_id = (function ()
-    local found, sprite_id = pcall(function () return id.Sprite.RS3_PARENT_FRAME_SIDE_TILE end)
+---@param sprite_name string
+---@return integer?
+local function sprite_id_of(sprite_name)
+    local found, sprite_id = pcall(function () return id.Sprite[sprite_name] end)
     return found and sprite_id or nil
-end)()
+end
+
+local side_tile_id = sprite_id_of("RS3_PARENT_FRAME_SIDE_TILE")
+
+-- Smaller windows' title bar had its title on a red plate at the left, which started at the title
+-- corner. The game centres titles now, and some windows (like the one for making items) draw the
+-- plate's middle piece on its own behind the title, where it would be a red block with cut-off
+-- ends. So the plate is only drawn where it follows the title corner; elsewhere that piece looks
+-- like the rest of the title bar.
+local title_plate_id = sprite_id_of("RS3_MODAL_WINDOW_1_TITLE_TILE")
+local title_bar_image = "RS3_MODAL_WINDOW_1_TOP_TILE"
+local title_corner_width = 28
 
 ---@param component ui.Component
 local function is_title_strip_side(component)
@@ -220,16 +233,23 @@ local function is_title_strip_side(component)
     return parent ~= nil and component.height >= parent.height
 end
 
--- What to draw for a part showing the given game sprite: image_for's, except for the title strip's
--- side pieces.
+-- What to draw for a part showing the given game sprite: image_for's, except where the same
+-- sprite should look different depending on where it is (see above).
 ---@param component ui.Component
 ---@param sprite_id integer
 ---@return (PluginResource|integer)?
 local function image_for_part(component, sprite_id)
     local image = image_for(sprite_id)
-    if image and sprite_id == side_tile_id and is_title_strip_side(component) then
-        local resources = Plugin.resources
-        return resources and (resources.side_without_edge or resources["side_without_edge.png"]) or image
+    if not image then
+        return nil
+    end
+    local resources = Plugin.resources or {}
+    if sprite_id == side_tile_id and is_title_strip_side(component) then
+        return resources.side_without_edge or resources["side_without_edge.png"] or image
+    end
+    if sprite_id == title_plate_id and component.x ~= title_corner_width then
+        local frames = resources.frames or {}
+        return frames[title_bar_image] or frames[title_bar_image .. ".png"] or image
     end
     return image
 end

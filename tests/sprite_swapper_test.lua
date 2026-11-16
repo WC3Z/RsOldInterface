@@ -369,5 +369,22 @@ for round = 1, 4 do
 end
 swapper.stop()
 
+-- a small window's red title plate is only drawn right after the title corner; where the game
+-- draws that piece on its own behind a centred title, it looks like the rest of the title bar
+names[103] = "RS3_MODAL_WINDOW_1_TITLE_TILE"
+id.Sprite.RS3_MODAL_WINDOW_1_TITLE_TILE = 103
+Plugin.resources.frames.RS3_MODAL_WINDOW_1_TITLE_TILE = "img_plate"
+Plugin.resources.frames.RS3_MODAL_WINDOW_1_TOP_TILE = "img_title_bar"
+package.loaded["src/game/sprite_swapper"] = nil
+local fresh_swapper = require("src/game/sprite_swapper")
+local after_corner = sprite(17, 0, 103, true); after_corner.x = 28
+local behind_title = sprite(17, 1, 103, true); behind_title.x = 125
+load(17, { [0] = after_corner, [1] = behind_title })
+fresh_swapper.start(groups.names(all_on))
+tick(5)
+assert(after_corner.image == "img_plate", "the plate after the title corner")
+assert(behind_title.image == "img_title_bar", "no plate behind a centred title")
+fresh_swapper.stop()
+
 -- nothing above made the plugin print an error (but for the one asked for)
 assert(#errors == 1, "unexpected error: " .. tostring(errors[2]))
