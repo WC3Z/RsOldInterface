@@ -38,4 +38,34 @@ function skin_palette.old_colour(rgb)
     return old_colours[rgb]
 end
 
+-- The mobile skin's text colours are close to the old desktop ones but not the same: headings were
+-- a stronger gold and body text a softer blue-grey (measured from a screenshot of the old Settings
+-- window).
+---@type table<integer, integer>
+local old_desktop_text_colours = {
+    [0xD9DBA9] = 0xFCC907,
+    [0xA1EAFC] = 0xA6C7D6,
+}
+
+-- Text colours that aren't in the skin, like the ones prettyui (used by plugins' windows) draws
+-- with, and the old colours for the same kind of text.
+---@type table<integer, integer>
+local other_text_colours = {
+    [0xF4E4B8] = 0xFCC907, -- window titles
+    [0xF2C66D] = 0xFCC907, -- sub-headings
+    [0xE7D7B0] = 0xA6C7D6, -- labels
+    [0xF2E2BC] = 0xC4DDE9, -- tabs and options
+}
+
+-- The old colour for a text colour, or nil if it has none.
+---@param rgb integer
+---@return integer?
+function skin_palette.old_text_colour(rgb)
+    local old_rgb = skin_palette.old_colour(rgb)
+    if old_rgb then
+        return old_desktop_text_colours[old_rgb] or old_rgb
+    end
+    return other_text_colours[rgb]
+end
+
 return skin_palette

@@ -5,7 +5,7 @@ local activity_log = {}
 activity_log.enabled = false
 
 local prefix = "[Old Interface] "
-local lines_left = { activity = 120, unswapped = 80, interactive = 60, rectangle = 40 }
+local lines_left = { activity = 120, unswapped = 80, interactive = 60, rectangle = 40, colour = 150 }
 ---@type table<string, boolean>
 local unswapped_seen = {}
 
@@ -74,7 +74,7 @@ end
 -- of (each is looked up again every frame), how many it had to swap again since the last line,
 -- how often that looked like a rebuild, and which interfaces are watched closely.
 ---@param update_number integer
----@param counts { frames: integer, swapped_parts: integer, visible_parts: integer, recoloured: integer, reswapped: integer, rebuilt: table<integer, integer> }
+---@param counts { frames: integer, checks: integer, swapped_parts: integer, visible_parts: integer, recoloured: integer, reswapped: integer, rebuilt: table<integer, integer> }
 ---@param closely_watched table<integer, any>
 function activity_log.stats(update_number, counts, closely_watched)
     if not activity_log.enabled then
@@ -90,9 +90,82 @@ function activity_log.stats(update_number, counts, closely_watched)
         rebuilt[#rebuilt + 1] = interface_name(interface_id) .. " x" .. times
     end
     table.sort(rebuilt)
-    print(string.format("%sstats at update %d: %d frames, %d parts (%d checked every frame), %d rectangles, %d swapped again, rebuilt: %s, watching closely: %s",
-        prefix, update_number, counts.frames, counts.swapped_parts, counts.visible_parts, counts.recoloured, counts.reswapped,
+    print(string.format("%sstats at update %d: %d frames (%d checked), %d parts (%d checked every update), %d rectangles, %d swapped again, rebuilt: %s, watching closely: %s",
+        prefix, update_number, counts.frames, counts.checks, counts.swapped_parts, counts.visible_parts, counts.recoloured, counts.reswapped,
         table.concat(rebuilt, ", "), table.concat(watched, ", ")))
+end
+
+-- The interfaces whose swaps are traced one by one (see activity_log.trace), by name.
+activity_log.traced_interfaces = { ESCAPE_MENU = true }
+local trace_lines_left = 300
+
+-- What happens to one swapped part in a traced interface: swapped by the walk, swapped again
+-- before a frame, or gone.
+---@param update_number integer
+---@param interface_id integer
+---@param sprite_id integer
+---@param text string
+function activity_log.trace(update_number, interface_id, sprite_id, text)
+    if not activity_log.enabled or trace_lines_left <= 0 or not activity_log.traced_interfaces[interface_name(interface_id)] then
+        return
+    end
+    local found, sprite_name = pcall(id.Sprite.FromID, sprite_id)
+    sprite_name = found and sprite_name or tostring(sprite_id)
+    trace_lines_left = trace_lines_left - 1
+    print(string.format("%supdate %d: %s %s", prefix, update_number, sprite_name, text))
+end
+
+---@type table<string, boolean>
+local frame_piece_seen = {}
+
+-- Where a big or plugin window's frame piece sits, once per piece: to tell the pieces with the same image
+-- apart, like the short side piece between the title and the tabs.
+---@param component ui.Component
+---@param sprite_id integer
+function activity_log.frame_piece(component, sprite_id)
+    if not activity_log.enabled then
+        return
+    end
+    local found, sprite_name = pcall(id.Sprite.FromID, sprite_id)
+    if not found or not sprite_name or not (sprite_name:find("^RS3_PARENT_FRAME_") or sprite_name:find("MODAL_WINDOW_1_")) then
+        return
+    end
+    local key = string.format("%d:%d:%d:%d", component.interfaceID, component.staticID, component.categoryID, component.dynamicID)
+    if frame_piece_seen[key] then
+        return
+    end
+    frame_piece_seen[key] = true
+    local parent = component.parent
+    print(string.format("%sframe %s %s at %d,%d size %dx%d, parent %s %dx%d", prefix, sprite_name, key,
+        component.x, component.y, component.width, component.height,
+        parent and tostring(parent.staticID) or "-", parent and parent.width or 0, parent and parent.height or 0))
+end
+
+---@type table<string, boolean>
+local colour_seen = {}
+
+-- A text's colour and the old one it gets (or none), with a bit of the text to know it by. Only
+-- printed once per colour, kind of text and window.
+---@param component ui.Component
+---@param field string
+---@param rgb integer
+---@param old_rgb integer?
+function activity_log.colour(component, field, rgb, old_rgb)
+    if not activity_log.enabled or component.type == ui.ComponentType.RECTANGLE then
+        return
+    end
+    local signature = string.format("0x%06X %s%s", rgb, tostring(component.type), field ~= "" and (" " .. field) or "")
+    local seen_key = signature .. component.interfaceID
+    if colour_seen[seen_key] then
+        return
+    end
+    colour_seen[seen_key] = true
+    local found, text = pcall(function ()
+        return field == "" and component.content or component[field].content
+    end)
+    local sample = found and type(text) == "string" and text:sub(1, 30) or "?"
+    local target = old_rgb and string.format("0x%06X", old_rgb) or "no old colour"
+    print_limited("colour", string.format("text %s -> %s \"%s\" in %s", signature, target, sample, interface_name(component.interfaceID)))
 end
 
 ---@type table<string, boolean>

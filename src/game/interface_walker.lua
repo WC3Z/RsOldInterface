@@ -2,7 +2,7 @@
 local interface_walker = {}
 
 -- The highest interface ID in the game data is 1946 (November 2026), with room for new ones.
-local last_interface_id = 2500
+interface_walker.last_interface_id = 2500
 -- Static component IDs run from 0 without gaps (one interface in the game data skips one),
 -- so walks stop after this many missing IDs in a row.
 interface_walker.allowed_missing_ids = 8
@@ -17,7 +17,7 @@ local collection_types = {
 
 ---@param callback fun(interface_id: integer)
 function interface_walker.each_loaded_interface(callback)
-    for interface_id = 0, last_interface_id do
+    for interface_id = 0, interface_walker.last_interface_id do
         if ui.Interfaces:GetInterface(interface_id) then
             callback(interface_id)
         end

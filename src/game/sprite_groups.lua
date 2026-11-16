@@ -6,6 +6,7 @@ local sprite_groups = {}
 ---@field name string
 ---@field patterns string[]
 ---@field window_contents boolean Whether the game changes these all the time (hover and selected states, rebuilt lists).
+---@field checked_while_hidden boolean? Whether to check these after every update even while hidden: the frames of windows that open inside the always-showing main interface, which the game resets as the window opens. There are few of them.
 
 ---@type SpriteGroup[]
 sprite_groups.all = {
@@ -39,23 +40,20 @@ sprite_groups.all = {
         name = "big_windows",
         patterns = { "^RS3_PARENT_FRAME_", "^RS3_PARENT_BANNER_" },
         window_contents = false,
+        checked_while_hidden = true,
     },
     {
-        -- Modal windows like the Bank: the frame and title bar.
+        -- Modal windows like the Bank and plugins' settings windows: the frame and title bar.
         name = "modal_windows",
-        patterns = { "^RS3_MAIN_MODAL_" },
+        patterns = { "^RS3_MAIN_MODAL_", "^RS3_MODAL_WINDOW_1_" },
         window_contents = false,
+        checked_while_hidden = true,
     },
     {
         -- The edges and corners of the frames inside windows, like around the Bank's item area and
-        -- side panels.
+        -- side panels, and round the boxes in plugins' windows.
         name = "content_frames",
-        patterns = { "^RS3_PARENT_CONTENT_TAB_FRAME_%d$" },
-        window_contents = false,
-    },
-    {
-        name = "tooltips",
-        patterns = { "^RS3_TOOLTIP_FILL_" },
+        patterns = { "^RS3_PARENT_CONTENT_TAB_FRAME_%d$", "^RS3_CONTENT_FRAME_%d$" },
         window_contents = false,
     },
     {
@@ -95,6 +93,13 @@ sprite_groups.all = {
         window_contents = true,
     },
     {
+        -- Not sprites: text (labels, and buttons', checkboxes' and input boxes' text) gets the old
+        -- colour from skin_palette too, like headings and descriptions.
+        name = "text_colours",
+        patterns = {},
+        window_contents = true,
+    },
+    {
         name = "sliders_and_scrollbars",
         patterns = { "^RS3_SLIDER_", "^SCROLLBAR_" },
         window_contents = true,
@@ -109,14 +114,51 @@ sprite_groups.stand_ins = {
     BUTTON_ACCORDION_20PX = "BUTTON_ACCORDION_20PX_MOBILE",
 }
 
--- The names of all groups, or only those that aren't window contents.
----@param with_window_contents boolean
+-- What players can turn on and off in the settings, each a few groups. Every group is in one.
+---@class SpriteGroupOption
+---@field key string Saved under this name.
+---@field label string
+---@field tooltip string
+---@field groups string[]
+
+---@type SpriteGroupOption[]
+sprite_groups.options = {
+    {
+        key = "frames",
+        label = "Window frames",
+        tooltip = "The frames, title bars and tabs of windows, like docked windows, Settings and the Bank",
+        groups = { "docked_windows", "big_windows", "modal_windows", "content_frames", "tabs" },
+    },
+    {
+        key = "backgrounds",
+        label = "Window backgrounds",
+        tooltip = "The backgrounds of windows, and the coloured panels in their lists",
+        groups = { "backgrounds", "colours" },
+    },
+    {
+        key = "controls",
+        label = "Buttons and controls",
+        tooltip = "Buttons, dropdowns, list rows, checkboxes, input boxes, sliders and scrollbars",
+        groups = { "buttons", "dropdowns", "rows", "styled_controls", "sliders_and_scrollbars" },
+    },
+    {
+        key = "text_colours",
+        label = "Text colours",
+        tooltip = "The old colours of headings, descriptions and button text. Turn off to keep the new ones, which some find easier to read",
+        groups = { "text_colours" },
+    },
+}
+
+-- The names of the groups in the options that are on.
+---@param is_on fun(option_key: string): boolean
 ---@return table<string, boolean>
-function sprite_groups.names(with_window_contents)
+function sprite_groups.names(is_on)
     local names = {}
-    for _, group in ipairs(sprite_groups.all) do
-        if with_window_contents or not group.window_contents then
-            names[group.name] = true
+    for _, option in ipairs(sprite_groups.options) do
+        if is_on(option.key) then
+            for _, group_name in ipairs(option.groups) do
+                names[group_name] = true
+            end
         end
     end
     return names
@@ -128,6 +170,17 @@ function sprite_groups.is_window_contents(group_name)
     for _, group in ipairs(sprite_groups.all) do
         if group.name == group_name then
             return group.window_contents
+        end
+    end
+    return false
+end
+
+---@param group_name string
+---@return boolean
+function sprite_groups.is_checked_while_hidden(group_name)
+    for _, group in ipairs(sprite_groups.all) do
+        if group.name == group_name then
+            return group.checked_while_hidden == true
         end
     end
     return false

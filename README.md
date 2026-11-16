@@ -8,18 +8,30 @@ A RuneScape 3 plugin that brings back the blue interface from before the overhau
 
 - **Docked windows**: the frames, headers and backgrounds of the windows you dock around the game screen (Skills, Friends, Chat, Worn Equipment and so on), and windows built from the same pieces, like the Bank.
 - **Big windows** like Settings and plugin windows: the frame and title banner.
+- **Plugins' windows**, like Area Names' settings: the frame, title bar and close button, and the frames round their boxes.
 - **The Bank**: its window frame and title bar, the frames around the item area and side panels, and the bank tabs.
 - **Every window's background**, including big windows like Settings, the Bank's item area, and windows made by other plugins.
 - **Window contents**: buttons, tabs, list rows, dropdowns, checkboxes, input boxes, sliders and scrollbars, including the newer controls in windows like Settings' Gameplay tab.
 - **Colours**: plain coloured panels, like the cards in Settings' lists, get the old blue.
-- **Tooltips.**
+- **Text colours**: headings, descriptions and button text get the old colours, in plugins' windows too.
 
-It turns on when the plugin loads, and the game's own look comes back when the plugin is turned off. The swapped parts are split into groups (see [`src/game/sprite_groups.lua`](src/game/sprite_groups.lua)), ready to be turned on and off separately.
+It turns on when the plugin loads, and the game's own look comes back when the plugin is turned off.
+
+## Settings
+
+Open the plugin's settings with the gear on its row in the Plugin Hub's Manage tab. Each part can be turned on and off, and changes show right away:
+
+- **Window frames**: the frames, title bars and tabs of windows.
+- **Window backgrounds**: window backgrounds, and the coloured panels in their lists.
+- **Buttons and controls**: buttons, dropdowns, list rows, checkboxes, input boxes, sliders and scrollbars.
+- **Text colours**: turn this off to keep the new text colours, which some find easier to read.
+
+Each option covers a few groups of the game's images (see [`src/game/sprite_groups.lua`](src/game/sprite_groups.lua)). The plugin depends on the [prettyui](https://prettyui.j3.gg/) plugin for its settings page (see `plugin.json`).
 
 ## What it leaves alone, and why
 
 - **Parts added after the overhaul**, which have no old version, like the search box in Settings. Where the game's mobile version still has the old look, that's used instead (Settings' category headers).
-- **Text colours**, for now.
+- **Text in other colours**, like green or red status text and item names. Only the colours from the game's skin are changed.
 
 ## How it works
 
@@ -31,6 +43,14 @@ The old images are in [`resources/frames/`](resources/frames), each named after 
 
 - A window can show the new look for a moment the first time it opens, until the plugin gets to it.
 - New images in `resources/` only load after running `prf` in the game's console or restarting the client, not when reloading the plugin.
+
+## Testing
+
+The tests run the plugin's Lua outside the game, against a fake of the parts of the game's API it uses (see [`tests/`](tests)). They need Node.js:
+
+```bash
+cd tests && npm install && npm test
+```
 
 ## Building
 
