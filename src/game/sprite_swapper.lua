@@ -17,6 +17,7 @@ local sprite_groups = require("src/game/sprite_groups")
 local skin_palette = require("src/game/skin_palette")
 local guard = require("src/game/guard")
 local activity_log = require("src/debug/activity_log")
+local profile = require("src/debug/profile")
 
 local sprite_swapper = {}
 
@@ -75,13 +76,15 @@ local checked_while_hidden_cache = {}
 ---@field visible boolean Whether it was showing when last looked at.
 ---@field changes_often boolean Whether the game changes it all the time, like a button's hover state.
 ---@field checked_while_hidden boolean Whether it's checked after every update even while hidden, like a big window's frame.
----@field in_use boolean Whether the game changed it, or a part next to it, while it was checked in turns: some parts say they're hidden while they show (like docked windows' tab buttons), so the game changing them is the better sign.
+---@field in_use boolean Whether the game changed it, or a part next to it, while it was checked in turns (see below).
 
+-- A part is in use when the game changes it while it isn't checked after every update: some parts
+-- say they're hidden while they show (like docked windows' tab buttons), so the game changing
+-- them is the better sign that they're showing.
 ---@type table<string, SwappedPart>
 local swapped_parts = {}
 
--- The game only changes sprites in its logic updates, which are fewer than frames, so parts are
--- checked on the first frame after each update.
+-- The update whose changes have been looked for (see before_frame).
 ---@type integer?
 local checked_after_update = nil
 
@@ -123,18 +126,30 @@ local hidden_colour_check_interval = 10
 
 ---@type table<string, RecolouredPart>
 local recoloured_parts = {}
+-- The old colours given to parts so far: a part showing one has (most likely) been recoloured.
+---@type table<integer, boolean>
+local applied_colours = {}
 
 -- DEBUG: what the swapping costs since the last stats line (see activity_log.stats).
 local stats_interval = 200
 local stats = { frames = 0, checks = 0, swapped_parts = 0, visible_parts = 0, recoloured = 0, reswapped = 0, rebuilt = {} }
 local stats_logged_at = 0
 
--- DEBUG: whether the swaps happening now are before a frame (Event.Draw) or in a logic update.
-local in_draw = false
-
 -- DEBUG: the update each interface last had a new swap logged in.
 ---@type table<integer, integer>
 local swap_logged_at = {}
+
+-- Interfaces whose colours are left alone: hover tooltips are rebuilt for every hover, so their
+-- text would change colour a moment after showing each time (and their look is kept as it is).
+local interfaces_with_own_colours = { "TEXT_TOOLTIP" }
+---@type table<integer, boolean>
+local interface_ids_with_own_colours = {}
+for _, name in ipairs(interfaces_with_own_colours) do
+    local found, interface_id = pcall(function () return id.Interface[name] end)
+    if found and interface_id then
+        interface_ids_with_own_colours[interface_id] = true
+    end
+end
 
 -- Interfaces whose parts say they're hidden while they show, so they're in use from the start
 -- (see SwappedPart.in_use): the docked windows' tab bars.
@@ -249,6 +264,14 @@ local function set_sprite(part, sprite)
     return (pcall(set_field, part, "sprite", sprite))
 end
 
+-- Parts the game changed lately, like the button under the mouse, which the game sets to its hover
+-- sprite again every frame: they're checked before every frame, not just after every update, for
+-- this many updates after their last change.
+local hot_part_updates = 10
+-- The update until which each part (by swapped_parts key) is checked before every frame.
+---@type table<string, integer>
+local hot_parts = {}
+
 ---@param swapped SwappedPart
 local function is_checked_every_update(swapped)
     return swapped.checked_while_hidden or swapped.in_use or (swapped.visible and swapped.changes_often)
@@ -266,6 +289,22 @@ local function mark_in_use(interface_id, static_id)
     end
 end
 
+-- DEBUG: a walked part that draws a runtime image: one the plugin swapped, or someone else's.
+---@param component ui.Component
+---@param field string
+local function log_already_swapped(component, field)
+    if not component.visibleGlobal then
+        return
+    end
+    local key = interface_walker.component_key(component) .. ":" .. field
+    local swapped = swapped_parts[key]
+    if swapped then
+        activity_log.frame_piece(component, swapped.original_sprite_id)
+    elseif watch then
+        activity_log.trace(watch.update_number, component.interfaceID, -1, key .. " shows an image the plugin didn't set")
+    end
+end
+
 ---@param component ui.Component
 ---@param field string
 ---@return boolean # Whether the part is swapped, or may be (sprites drawing a runtime image
@@ -277,18 +316,10 @@ local function swap_part(component, field)
     end
     local sprite_id = part.spriteID
     if sprite_id == -1 then
-        -- Already swapped: it may have shown since it was last looked at, and then needs checking
-        -- after every update again.
-        local swapped = swapped_parts[interface_walker.component_key(component) .. ":" .. field]
-        if swapped and not swapped.visible then
-            swapped.visible = component.visibleGlobal
-        end
-        if activity_log.enabled and swapped and component.visibleGlobal then
-            activity_log.frame_piece(component, swapped.original_sprite_id)
-        end
-        if activity_log.enabled and watch and not swapped and component.visibleGlobal then
-            activity_log.trace(watch.update_number, component.interfaceID, -1, string.format("%s:%s shows an image the plugin didn't set",
-                interface_walker.component_key(component), field))
+        -- Already swapped (or drawing some other runtime image). Most parts walked are, so
+        -- nothing more is looked up for them.
+        if activity_log.enabled then
+            log_already_swapped(component, field)
         end
         return true
     end
@@ -301,7 +332,7 @@ local function swap_part(component, field)
             end
         end
         -- Only in interfaces that just loaded, showed or were rebuilt, not everything at startup.
-        if activity_log.enabled and watch and watch.closely_watched[component.interfaceID] and component.visibleGlobal then
+        if activity_log.enabled and watch and watch.watched[component.interfaceID] and component.visibleGlobal then
             activity_log.unswapped(component.interfaceID, sprite_id, field, component.width, component.height)
         end
         return false
@@ -319,14 +350,25 @@ local function swap_part(component, field)
     if known and not is_checked_every_update(known) then
         mark_in_use(known.interface_id, known.static_id)
     end
+    -- The game changed a part the plugin had swapped, and the walk got to it before the check
+    -- did: it may be one the game sets every frame.
+    if known and watch then
+        hot_parts[key] = watch.update_number + hot_part_updates
+    end
     if activity_log.enabled and watch then
-        activity_log.trace(watch.update_number, component.interfaceID, sprite_id, string.format("%s by walk (%s, %s, %s)", key,
+        activity_log.trace(watch.update_number, component.interfaceID, sprite_id, string.format("%s by walk (%s, %s, the %s walk)", key,
             swapped_parts[key] and "again" or "new", component.visibleGlobal and "showing" or "hidden",
-            in_draw and "before frame" or "in update"))
+            watch.walk_kind))
+    end
+    if profile.enabled and swapped_parts[key] == nil and watch and watch.walk_kind ~= "now" and component.visibleGlobal then
+        local found, sprite_name = pcall(id.Sprite.FromID, sprite_id)
+        profile.late(component.interfaceID, (found and sprite_name or tostring(sprite_id)) .. " (" .. watch.walk_kind .. ")")
     end
     if swapped_parts[key] == nil and watch then
         -- New parts often come in batches (a list filling in), so more may follow.
-        interface_watcher.keep_watching_closely(watch, component.interfaceID)
+        if component.visibleGlobal then
+            interface_watcher.found_new_part(watch, component.interfaceID, component.staticID, component.categoryID ~= -1)
+        end
         if activity_log.enabled and swap_logged_at[component.interfaceID] ~= watch.update_number then
             swap_logged_at[component.interfaceID] = watch.update_number
             activity_log.first_swap(watch.update_number, component.interfaceID)
@@ -387,23 +429,37 @@ end
 ---@param field string
 ---@return boolean # Whether it has the old colour.
 local function recolour(component, field, is_text)
-    local key = interface_walker.component_key(component) .. ":" .. field
     local rgb = read_colour(component, field)
     if rgb == nil then
         return false
     end
+    local old_rgb = is_text and skin_palette.old_text_colour(rgb) or skin_palette.old_colour(rgb)
+    -- This runs for every text and rectangle walked, and most have nothing to change: those are
+    -- told by their colour alone, without working out the part's key (which reads four IDs).
+    if old_rgb == nil then
+        return applied_colours[rgb] == true
+    end
+    if interface_ids_with_own_colours[component.interfaceID] then
+        return false
+    end
+    local key = interface_walker.component_key(component) .. ":" .. field
     local recoloured = recoloured_parts[key]
     if recoloured and rgb == recoloured.applied_rgb then
-        recoloured.visible = recoloured.visible or component.visibleGlobal
         return true
     end
-    local old_rgb = is_text and skin_palette.old_text_colour(rgb) or skin_palette.old_colour(rgb)
-    if activity_log.enabled and watch and watch.closely_watched[component.interfaceID] and component.visibleGlobal then
+    if activity_log.enabled and watch and watch.watched[component.interfaceID] and component.visibleGlobal then
         activity_log.colour(component, field, rgb, old_rgb)
     end
     if old_rgb == nil or not write_colour(component, field, old_rgb) then
         return false
     end
+    if recoloured == nil and watch and component.visibleGlobal then
+        interface_watcher.found_new_part(watch, component.interfaceID, component.staticID, component.categoryID ~= -1)
+    end
+    if profile.enabled and recoloured == nil and watch and watch.walk_kind ~= "now" and component.visibleGlobal then
+        profile.late(component.interfaceID, (is_text and "a text colour" or "a panel colour") .. " (" .. watch.walk_kind .. ")")
+    end
+    applied_colours[old_rgb] = true
     recoloured_parts[key] = {
         interface_id = component.interfaceID,
         static_id = component.staticID,
@@ -424,10 +480,11 @@ end
 ---@return boolean # Whether any of the component's parts is swapped.
 local function swap(component)
     local colour_part = colour_parts[component.type]
-    local recoloured = colour_part ~= nil and swapped_groups[colour_part.group] == true and recolour(component, colour_part.field, colour_part.group == "text_colours")
+    local recoloured = colour_part ~= nil and swapped_groups[colour_part.group] == true
+        and recolour(component, colour_part.field, colour_part.group == "text_colours")
     if component.type == ui.ComponentType.RECTANGLE then
         ---@cast component ui.Rectangle
-        if activity_log.enabled and watch and watch.closely_watched[component.interfaceID] and component.visibleGlobal then
+        if activity_log.enabled and watch and watch.watched[component.interfaceID] and component.visibleGlobal then
             activity_log.rectangle(component)
         end
     end
@@ -441,7 +498,7 @@ local function swap(component)
             swapped = true
         end
     end
-    if activity_log.enabled and fields[1] ~= "" and watch and watch.closely_watched[component.interfaceID] and component.visibleGlobal then
+    if activity_log.enabled and fields[1] ~= "" and watch and watch.watched[component.interfaceID] and component.visibleGlobal then
         local part_sprite_ids = {}
         for _, field in ipairs(fields) do
             local part = part_of(component, field)
@@ -508,22 +565,10 @@ local function log_stats()
     for _ in pairs(recoloured_parts) do
         stats.recoloured = stats.recoloured + 1
     end
-    activity_log.stats(watch.update_number, stats, watch.closely_watched)
+    activity_log.stats(watch.update_number, stats, watch.watched)
     stats = { frames = 0, checks = 0, swapped_parts = 0, visible_parts = 0, recoloured = 0, reswapped = 0, rebuilt = {} }
 end
 
--- Parts the game changed lately, like the button under the mouse, which the game sets to its hover
--- sprite again every frame: they're checked before every frame, not just after every update, for
--- this many updates after their last change.
-local hot_part_updates = 10
--- The update until which each part (by swapped_parts key) is checked before every frame.
----@type table<string, integer>
-local hot_parts = {}
-
--- The static components (by interface and static ID) whose game-created parts have gone since
--- the last update: the game is likely building them again with new parts.
----@type table<string, { interface_id: integer, static_id: integer }>
-local emptied_containers = {}
 
 -- Swaps a part again if the game has given it a sprite since: the same one when it rebuilds it
 -- (like the tab bar when switching tabs), or another one when its state changes (like a button's
@@ -539,15 +584,16 @@ local function reswap_if_changed(key, swapped, between_updates)
             activity_log.trace(watch.update_number, swapped.interface_id, swapped.original_sprite_id, key .. " gone")
         end
         swapped_parts[key] = nil
-        if swapped.category_id ~= -1 then
-            emptied_containers[swapped.interface_id .. ":" .. swapped.static_id] = {
-                interface_id = swapped.interface_id,
-                static_id = swapped.static_id,
-            }
+        -- Parts the game created that are gone were likely built again under new IDs.
+        if swapped.category_id ~= -1 and watch then
+            interface_watcher.walk_container_soon(watch, swapped.interface_id, swapped.static_id)
         end
         return
     end
     swapped.visible = component.visibleGlobal
+    if profile.traces_hover and profile.enabled and not between_updates and watch and watch.update_number % 5 == 0 and component.isMouseOver then
+        profile.hovered(key, component)
+    end
     local sprite_id = part.spriteID
     local image = sprite_id ~= -1 and image_for_part(component, sprite_id)
     if image and set_sprite(part, image) then
@@ -568,10 +614,13 @@ local function reswap_if_changed(key, swapped, between_updates)
             hot_parts[key] = watch.update_number + hot_part_updates
         end
         -- The same sprite again means the game rebuilt the component (a different one is just a
-        -- state change, like hovering). Then it's likely rebuilding the interface, and new parts
-        -- of it may follow. Not for hot parts: the game sets those again all the time.
+        -- state change, like hovering). Then it's likely rebuilding what's around it, and new parts
+        -- may follow there. Not for hot parts: the game sets those again all the time.
         if sprite_id == swapped.original_sprite_id and not is_hot and not between_updates and watch then
-            interface_watcher.watch_closely(watch, swapped.interface_id, "rebuilt")
+            interface_watcher.walk_container_soon(watch, swapped.interface_id, swapped.static_id)
+            if profile.enabled then
+                profile.rebuilt(swapped.interface_id)
+            end
         end
         if not is_checked_every_update(swapped) and not between_updates then
             mark_in_use(swapped.interface_id, swapped.static_id)
@@ -607,47 +656,59 @@ end
 -- Before the first frame after each logic update is drawn, swaps again the parts the game has
 -- given a sprite since, so the game's sprites don't show for a frame: every showing part the game
 -- changes all the time, and some of the rest.
-local function reswap_changed_parts()
-    if activity_log.enabled then
-        log_stats()
-    end
-    if watch == nil then
-        return
-    end
-    if watch.update_number == checked_after_update then
-        for key, hot_until in pairs(hot_parts) do
-            local swapped = swapped_parts[key]
-            if swapped == nil or hot_until < watch.update_number then
-                hot_parts[key] = nil
+-- DEBUG: what the benchmark runs on.
+---@return BenchmarkSubjects
+local function benchmark_subjects()
+    local subjects = { visit = swap }
+    local found, main_interface_id = pcall(function () return id.Interface.TOPLEVEL_V2 end)
+    for _, swapped in pairs(swapped_parts) do
+        if swapped.field == "" and swapped.visible then
+            if swapped.category_id == -1 then
+                subjects.static = subjects.static or swapped
             else
-                reswap_if_changed(key, swapped, true)
+                subjects.dynamic = subjects.dynamic or swapped
             end
         end
-        return
     end
-    checked_after_update = watch.update_number
-    in_draw = true
-    interface_watcher.walk_newly_shown(watch)
-    interface_watcher.walk_closely_watched(watch)
+    subjects.walked_interface_id = found and main_interface_id or (subjects.static and subjects.static.interface_id)
+    return subjects
+end
+
+-- Hot parts are checked before every frame (see hot_parts).
+local function reswap_hot_parts()
+    for key, hot_until in pairs(hot_parts) do
+        local swapped = swapped_parts[key]
+        if swapped == nil or hot_until < watch.update_number then
+            hot_parts[key] = nil
+        else
+            reswap_if_changed(key, swapped, true)
+            profile.count("hot part checks", 1)
+        end
+    end
+end
+
+local function reswap_parts_checked_every_update()
+    local checked = 0
     for key, swapped in pairs(swapped_parts) do
         if is_checked_every_update(swapped) then
             reswap_if_changed(key, swapped)
+            checked = checked + 1
         end
     end
-    reswap_some_other_parts()
-    -- New parts in their place get swapped before this frame, not when the walk gets to them.
-    for _, container in pairs(emptied_containers) do
-        interface_watcher.walk_static(watch, container.interface_id, container.static_id)
-    end
-    emptied_containers = {}
-    in_draw = false
-    stats.checks = stats.checks + 1
-    local check_hidden_colours = watch.update_number % hidden_colour_check_interval == 0
+    profile.count("parts checked every update", checked)
+end
+
+-- Gives parts the old colour again where the game has set its own since. Hidden ones are only
+-- looked at every few updates, and parts that are gone are forgotten.
+local function recolour_changed_parts()
+    local check_hidden = watch.update_number % hidden_colour_check_interval == 0
+    local checked = 0
     for key, recoloured in pairs(recoloured_parts) do
-        local component = (recoloured.visible or check_hidden_colours) and find_recoloured(recoloured)
+        local component = (recoloured.visible or check_hidden) and find_recoloured(recoloured)
         if component == nil then
             recoloured_parts[key] = nil
         elseif component then
+            checked = checked + 1
             recoloured.visible = component.visibleGlobal
             local rgb = read_colour(component, recoloured.field)
             local old_rgb = rgb and rgb ~= recoloured.applied_rgb
@@ -657,6 +718,48 @@ local function reswap_changed_parts()
                 recoloured.applied_rgb = old_rgb
             end
         end
+    end
+    profile.count("colours checked", checked)
+end
+
+-- DEBUG
+local function count_parts_for_profile()
+    local parts, colours = 0, 0
+    for _ in pairs(swapped_parts) do parts = parts + 1 end
+    for _ in pairs(recoloured_parts) do colours = colours + 1 end
+    profile.count("swapped parts in all", parts)
+    profile.count("recoloured parts in all", colours)
+end
+
+-- Runs before every frame. The game changes its interfaces during its logic updates, which are
+-- fewer than frames, so the looking for new and changed parts is done once after each update,
+-- before the first frame that would show them. On the frames in between, only hot parts are
+-- checked.
+---@param event DrawEventPayload?
+local function before_frame(event)
+    if activity_log.enabled then
+        log_stats()
+    end
+    if watch == nil then
+        return
+    end
+    profile.frame(event, watch.update_number, benchmark_subjects)
+    if watch.update_number == checked_after_update then
+        reswap_hot_parts()
+        return
+    end
+    checked_after_update = watch.update_number
+
+    interface_watcher.before_frame(watch)
+    reswap_parts_checked_every_update()
+    reswap_some_other_parts()
+    -- After the checks: they point out where the game rebuilt things.
+    interface_watcher.walk_containers(watch)
+    recolour_changed_parts()
+
+    stats.checks = stats.checks + 1
+    if profile.enabled then
+        count_parts_for_profile()
     end
 end
 
@@ -690,7 +793,7 @@ function sprite_swapper.start(groups)
     changes_often_cache = {}
     checked_while_hidden_cache = {}
     watch = interface_watcher.start(subscription_name, swap)
-    Event.Draw.Subscribe(draw_subscription_name, guard.guarded("before a frame", reswap_changed_parts))
+    Event.Draw.Subscribe(draw_subscription_name, guard.guarded("before a frame", before_frame))
 end
 
 function sprite_swapper.stop()

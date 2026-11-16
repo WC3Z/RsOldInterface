@@ -6,8 +6,10 @@ local sprite_groups = {}
 ---@field name string
 ---@field patterns string[]
 ---@field window_contents boolean Whether the game changes these all the time (hover and selected states, rebuilt lists).
----@field checked_while_hidden boolean? Whether to check these after every update even while hidden: the frames of windows that open inside the always-showing main interface, which the game resets as the window opens. There are few of them.
+---@field checked_while_hidden boolean? Whether to check these after every update even while hidden (see below).
 
+-- Groups checked while hidden are the frames of windows that open inside the always-showing main
+-- interface: the game resets them as the window opens, and there are few of them.
 ---@type SpriteGroup[]
 sprite_groups.all = {
     {

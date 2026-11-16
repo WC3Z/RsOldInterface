@@ -5,10 +5,11 @@ package.path = "./?.lua;" .. package.path
 local errors = {}
 local real_print = print
 -- Errors the plugin prints are collected (and checked below) rather than shown.
+local quiet = false
 print = function (text)
   if tostring(text):find("error") then
     errors[#errors + 1] = text
-  else
+  elseif not quiet then
     real_print(text)
   end
 end
@@ -97,22 +98,24 @@ tick(8)
 assert(loaded[1800][0].spriteID == -1, "new interface found by the spread scan")
 
 -- a hidden tab (its own interface) that the game shows and rebuilds in one update
-load(6, { [0] = sprite(6, 0, 101, false) })
+load(6, { [0] = sprite(6, 0, 101, false), [1] = sprite(6, 1, 999, false) })
 tick(12)
 assert(loaded[6][0].spriteID == -1, "hidden tab swapped ahead")
 logic()
 loaded[6][0].spriteID = 101
 loaded[6][0].visibleGlobal = true
-loaded[6][1] = sprite(6, 1, 101, true)
+loaded[6][1].spriteID = 101
+loaded[6][1].visibleGlobal = true
 draw()
 assert(loaded[6][0].spriteID == -1, "shown tab re-swapped before its first frame")
 assert(loaded[6][1].spriteID == -1, "shown tab's new part swapped before its first frame")
 
 -- a tab that loaded with a spinner, and gets its content during an update
-load(7, { [0] = sprite(7, 0, 999, true) })
+load(7, { [0] = sprite(7, 0, 999, true), [1] = sprite(7, 1, 999, false) })
 tick(6)
 logic()
-loaded[7][1] = sprite(7, 1, 101, true)
+loaded[7][1].spriteID = 101
+loaded[7][1].visibleGlobal = true
 draw()
 assert(loaded[7][1].spriteID == -1, "content filled in during an update swapped before its first frame")
 
@@ -215,6 +218,19 @@ assert(label.rgb == 0xF0BE79, "text left alone with text colours off")
 assert(card.rgb == 0x152648, "cards still recoloured")
 swapper.stop()
 
+-- the profiler (a debug aid) runs its reports and benchmark without errors
+local profile = require("src/debug/profile")
+profile.benchmark_iterations = 30
+profile.benchmark_at_update = 20
+quiet = true
+profile.enable()
+swapper.start(groups.names(all_on))
+tick(900)
+swapper.stop()
+profile.disable()
+quiet = false
+assert(#errors == 0, "no errors while profiling: " .. tostring(errors[1]))
+
 -- the game reuses a button's IDs for a plain sprite component, and a part's sprite ID turns nil
 swapper.start(groups.names(all_on))
 tick(10)
@@ -248,3 +264,110 @@ strip_side.spriteID = 100
 draw()
 assert(strip_side.image == "img_side_without_edge", "and again after the game resets it")
 swapper.stop()
+
+
+-- an interface that's been loaded and hidden since the start, with nothing to change in it until it
+-- shows (like the music player in Settings): found by its root showing, before the frame. Its
+-- static components sit in a tree, and those inside a hidden one aren't looked at.
+local lookups = {}
+local function tracked(component)
+  return setmetatable({}, {
+    __index = function (_, k)
+      if k == "visibleGlobal" then lookups[component.staticID] = (lookups[component.staticID] or 0) + 1 end
+      return component[k]
+    end,
+    __newindex = function (_, k, v) component[k] = v end,
+  })
+end
+local root = layer(11, 0); root.visibleGlobal = false
+local panel = layer(11, 1); panel.visibleGlobal = false; panel.parentStatic = root
+local deep = sprite(11, 2, 999, false); deep.parentStatic = panel
+local other = sprite(11, 3, 999, false); other.parentStatic = root
+load(11, { [0] = tracked(root), [1] = tracked(panel), [2] = tracked(deep), [3] = tracked(other) })
+swapper.start(groups.names(all_on))
+tick(40)
+logic()
+root.visibleGlobal = true
+other.visibleGlobal = true
+other.spriteID = 101
+draw()
+assert(other.spriteID == -1, "swapped before the frame it showed in")
+lookups = {}
+tick(20)
+assert((lookups[1] or 0) > 0, "the hidden panel is checked")
+assert(lookups[2] == nil or lookups[2] <= 2, "what's inside it only by the slow walk: " .. tostring(lookups[2]))
+swapper.stop()
+
+-- an interface with several roots (like the docked windows' tab bars): one of the later ones
+-- showing counts as the interface showing, and is swapped before the frame
+local roots = {}
+for i = 0, 5 do roots[i] = sprite(12, i, 999, i == 0) end
+load(12, roots)
+swapper.start(groups.names(all_on))
+tick(40)
+logic()
+roots[5].visibleGlobal = true
+roots[5].spriteID = 101
+draw()
+assert(roots[5].spriteID == -1, "a later root showing is swapped before its frame")
+
+-- an interface that's been showing all along, mounted inside one that just loaded (like the
+-- music player in Settings' Audio tab): its content turning up a bit later is swapped before the
+-- frame too
+local mounted_root = layer(13, 0)
+mounted_root.parentStatic = { interfaceID = 14, staticID = 0 }
+local mounted_part = sprite(13, 1, 999, false)
+mounted_part.parentStatic = mounted_root
+load(13, { [0] = mounted_root, [1] = mounted_part })
+tick(40)
+load(14, { [0] = layer(14, 0) })
+tick(5)
+logic()
+mounted_part.visibleGlobal = true
+mounted_part.spriteID = 101
+draw()
+assert(mounted_part.spriteID == -1, "content of an interface mounted in a fresh one is swapped before its frame")
+swapper.stop()
+
+-- a big interface where the game creates a window's parts inside one component (like plugins'
+-- windows in the main interface): the first parts are found by the pass, a little late; after
+-- that the component is remembered, and what's created in it is swapped before its frame
+local big = {}
+for i = 1, 1700 do big[i] = sprite(15, i, 999, true) end
+local plugin_layer = layer(15, 0)
+big[0] = plugin_layer
+load(15, big)
+swapper.start(groups.names(all_on))
+tick(40)
+plugin_layer.children[1] = tab(15, 0, 1)
+tick(40)
+assert(plugin_layer.children[1].spriteID == -1, "found by the pass")
+for round = 2, 6 do
+  tick(3)
+  logic()
+  plugin_layer.children[round] = tab(15, 0, round)
+  draw()
+  assert(plugin_layer.children[round].spriteID == -1, "created in a remembered component: swapped before its frame")
+end
+swapper.stop()
+
+-- a window that's been open a while (warm): when the game rebuilds one part of it, what it created
+-- elsewhere in the window at the same time is swapped before the frame too
+local list_a, list_b = layer(16, 0), layer(16, 1)
+list_a.children[1] = tab(16, 0, 1)
+swapper.start(groups.names(all_on))
+tick(2)
+load(16, { [0] = list_a, [1] = list_b })
+tick(60)
+for round = 1, 4 do
+  tick(9 + round)
+  logic()
+  list_a.children = { tab(16, 0, 10 + round) }
+  list_b.children[round] = tab(16, 1, round)
+  draw()
+  assert(list_b.children[round].spriteID == -1, "created elsewhere in a rebuilt window: swapped before its frame")
+end
+swapper.stop()
+
+-- nothing above made the plugin print an error (but for the one asked for)
+assert(#errors == 1, "unexpected error: " .. tostring(errors[2]))

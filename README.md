@@ -35,13 +35,13 @@ Each option covers a few groups of the game's images (see [`src/game/sprite_grou
 
 ## How it works
 
-Plugins can't replace a game image everywhere at once, only on each part of a window. So the plugin keeps walking the game's open windows, a slice every client update, and swaps the images it has an old version of. Windows that just opened or were just shown are walked first. Parts it has already swapped are checked again just before every frame is drawn, so when the game rebuilds them (like the tab bar when switching tabs) or changes their state (like hovering a button), they don't flash.
+Plugins can't replace a game image everywhere at once, only on each part of a window, and the game has no event for a window opening. So before each frame the plugin looks for what's new: every interface is checked for having loaded or started showing (that's cheap), and one that has is walked right away, and again every update for a moment while the game fills it in. Hidden parts of a window are skipped along with everything inside them. A slower pass over everything that's showing, and a slower one still over everything, catch the rest. Parts it has already swapped are checked again after each game update, so when the game rebuilds them (like the tab bar when switching tabs) or changes their state (like hovering a button), they don't flash.
 
 The old images are in [`resources/frames/`](resources/frames), each named after the game sprite it replaces. They come from a game cache from before the overhaul (cache 2409 in the [OpenRS2 archive](https://archive.openrs2.org/)), and some are stretched by a pixel or two to fit the current sprites' sizes. Big windows' frames, tabs and title banners are also cut to the current pieces' shapes, as the old ones were drawn for a different window layout. The old colours come from the game's own skin colour lists: the mobile skin still has them.
 
 ## Known issues
 
-- A window can show the new look for a moment the first time it opens, until the plugin gets to it.
+- Parts that turn up in a window that's been open a while (like rows when scrolling a long list, or the first plugin window opened) can show the new look for a few frames.
 - New images in `resources/` only load after running `prf` in the game's console or restarting the client, not when reloading the plugin.
 
 ## Testing

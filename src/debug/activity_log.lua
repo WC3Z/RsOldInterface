@@ -75,13 +75,13 @@ end
 -- how often that looked like a rebuild, and which interfaces are watched closely.
 ---@param update_number integer
 ---@param counts { frames: integer, checks: integer, swapped_parts: integer, visible_parts: integer, recoloured: integer, reswapped: integer, rebuilt: table<integer, integer> }
----@param closely_watched table<integer, any>
-function activity_log.stats(update_number, counts, closely_watched)
+---@param watched table<integer, any>
+function activity_log.stats(update_number, counts, watched)
     if not activity_log.enabled then
         return
     end
     local watched = {}
-    for interface_id in pairs(closely_watched) do
+    for interface_id in pairs(watched) do
         watched[#watched + 1] = interface_name(interface_id)
     end
     table.sort(watched)
