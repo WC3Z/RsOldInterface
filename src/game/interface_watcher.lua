@@ -25,6 +25,12 @@
 -- Hidden components are skipped with everything inside them, using each interface's tree of static
 -- components (which stays the same while it's loaded).
 --
+-- Why every ID is checked, instead of walking down from the main interface: the component an
+-- interface is mounted in doesn't list that interface among its children (IterateStaticComponents
+-- and IterateDynamicComponents give nothing there, and GetChild doesn't reach it either), so a
+-- walk from the top never leaves the main interface. And the ONSUBCHANGE hook isn't called for every load (not for the bank's), and
+-- when it is, it's in the same update the check finds the interface anyway.
+--
 -- Between frames only numbers are kept (which interface, which static component), never the
 -- components themselves: the game can destroy those in the meantime, and touching a destroyed
 -- component can crash the client.
