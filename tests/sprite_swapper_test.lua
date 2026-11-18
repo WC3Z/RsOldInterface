@@ -386,5 +386,45 @@ assert(after_corner.image == "img_plate", "the plate after the title corner")
 assert(behind_title.image == "img_title_bar", "no plate behind a centred title")
 fresh_swapper.stop()
 
+-- a colour scheme: grey copies are drawn and tinted, over the tint the game gave the part, and
+-- everything goes back when stopped
+Plugin.resources.frames_tintable = { RS3_BTN_MAIN_NEUTRAL_0 = "grey_btn0", RS3_BTN_MAIN_NEUTRAL_1 = "grey_btn1" }
+local tinted = sprite(18, 0, 101, true); tinted.rgb = 0xFFFFFF
+local dimmed = sprite(18, 1, 101, true); dimmed.rgb = 0x808080
+local without_grey_copy = sprite(18, 2, 100, true); without_grey_copy.rgb = 0xFFFFFF; without_grey_copy.height = 1
+local tinted_button = { interfaceID = 18, staticID = 3, categoryID = -1, dynamicID = -1, type = ui.ComponentType.BUTTON, visibleGlobal = true,
+  sprite = sprite(18, 3, 101, true), text = { rgba = 0xE3D7CFFF, content = "Ok" } }
+tinted_button.sprite.rgba = 0xFFFFFF80
+local tinted_card = { interfaceID = 18, staticID = 4, categoryID = -1, dynamicID = -1, type = ui.ComponentType.RECTANGLE, visibleGlobal = true, rgb = 0x24211E }
+load(18, { [0] = tinted, [1] = dimmed, [2] = without_grey_copy, [3] = tinted_button, [4] = tinted_card })
+fresh_swapper.start(groups.names(all_on), 0xFF0000)
+tick(5)
+assert(tinted.image == "grey_btn0" and tinted.rgb == 0xFF0000, "a grey copy is drawn, tinted")
+assert(dimmed.rgb == 0x800000, "the game's own tint stays under the scheme's")
+assert(without_grey_copy.image == "img_side" and without_grey_copy.rgb == 0xFFFFFF, "an image without a grey copy keeps its colours")
+assert(tinted_button.sprite.image == "grey_btn0" and tinted_button.sprite.rgba == 0xFF000080, "a button's sprite is tinted, its transparency kept")
+assert(tinted_card.rgb == 0x480000, "a panel gets the old colour in the scheme's colour")
+assert(tinted_button.text.rgba >> 8 ~= 0xA6C7D6 and tinted_button.text.rgba & 0xFF == 0xFF, "body text leans to the scheme's colour")
+-- hover: the game sets its sprite and its tint again
+tinted.spriteID = 102
+tinted.rgb = 0xFFFFFF
+tick(1)
+assert(tinted.image == "grey_btn1" and tinted.rgb == 0xFF0000, "tinted again after the game reset it")
+-- the game dims a part that stays the same otherwise
+tinted.rgb = 0x404040
+tick(1)
+assert(tinted.rgb == 0x400000, "a new tint from the game gets the scheme's on top")
+fresh_swapper.stop()
+assert(tinted.spriteID == 102 and tinted.rgb == 0x404040, "stopping gives back the game's sprite and tint")
+assert(dimmed.rgb == 0x808080 and tinted_button.sprite.rgba == 0xFFFFFF80 and tinted_card.rgb == 0x24211E, "for every part")
+
+-- without the grey copies (resources not loaded yet), a scheme falls back to the classic look
+Plugin.resources.frames_tintable = nil
+fresh_swapper.start(groups.names(all_on), 0xFF0000)
+tick(5)
+assert(tinted.image == "img_btn1" and tinted.rgb == 0x404040, "classic images, untinted")
+assert(tinted_card.rgb == 0x152648, "and classic colours")
+fresh_swapper.stop()
+
 -- nothing above made the plugin print an error (but for the one asked for)
 assert(#errors == 1, "unexpected error: " .. tostring(errors[2]))

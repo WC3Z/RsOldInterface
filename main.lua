@@ -3,9 +3,10 @@ local sprite_groups = require("src/game/sprite_groups")
 local settings = require("src/database/settings")
 local settings_view = require("src/interface/settings_view")
 
--- Starts again with the groups of the options that are on (the game's own look comes back first).
+-- Starts again with the groups of the options that are on, in the chosen colour scheme (the game's
+-- own look comes back first).
 local function swap_what_is_on()
-    sprite_swapper.start(sprite_groups.names(settings.is_on))
+    sprite_swapper.start(sprite_groups.names(settings.is_on), settings.tint())
 end
 
 swap_what_is_on()

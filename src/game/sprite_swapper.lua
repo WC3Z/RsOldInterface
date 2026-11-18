@@ -11,10 +11,14 @@
 -- changes are swapped again before the frame after each logic update is drawn.
 --
 -- With the colours group on, plain coloured rectangles get the old colour too (see skin_palette).
+--
+-- In a colour scheme other than the classic one (see colour_scheme), grey copies of the images are
+-- drawn and each part is tinted with the scheme's colour.
 local interface_walker = require("src/game/interface_walker")
 local interface_watcher = require("src/game/interface_watcher")
 local sprite_groups = require("src/game/sprite_groups")
 local skin_palette = require("src/game/skin_palette")
+local colour_scheme = require("src/game/colour_scheme")
 local guard = require("src/game/guard")
 local debug_tools = require("src/game/debug_tools")
 
@@ -47,6 +51,10 @@ local sprite_parts = {
 ---@type table<string, boolean>
 local swapped_groups = {}
 
+-- The colour scheme's tint (0xRRGGBB), or nil in the classic scheme, where nothing is tinted.
+---@type integer?
+local tint = nil
+
 ---@type InterfaceWatch?
 local watch = nil
 
@@ -63,6 +71,10 @@ local changes_often_cache = {}
 -- by sprite ID.
 ---@type table<integer, boolean>
 local checked_while_hidden_cache = {}
+-- Whether each swapped sprite's image is a grey copy to tint, by sprite ID. Stand-ins and sprites
+-- without a grey copy keep their own colours.
+---@type table<integer, boolean>
+local tinted_cache = {}
 
 -- Each swapped part's component IDs, field, and the game sprite it had, keyed by
 -- interface_walker.component_key and the field. When the game rebuilds a component it keeps its
@@ -79,6 +91,8 @@ local checked_while_hidden_cache = {}
 ---@field changes_often boolean Whether the game changes it all the time, like a button's hover state.
 ---@field checked_while_hidden boolean Whether it's checked after every update even while hidden, like a big window's frame.
 ---@field in_use boolean Whether the game changed it, or a part next to it, while it was checked in turns (see below).
+---@field original_rgb integer? The game's own tint of the part, if the plugin tinted it.
+---@field applied_rgb integer? The tint the plugin gave it: the game's with the colour scheme's on top.
 
 -- A part is in use when the game changes it while it isn't checked after every update: some parts
 -- say they're hidden while they show (like docked windows' tab buttons), so the game changing
@@ -131,6 +145,9 @@ local recoloured_parts = {}
 -- The old colours given to parts so far: a part showing one has (most likely) been recoloured.
 ---@type table<integer, boolean>
 local applied_colours = {}
+-- What old_colour_for worked out so far, by game colour (texts under -1 - colour); false for none.
+---@type table<integer, integer|false>
+local old_colour_cache = {}
 
 -- DEBUG: what the swapping costs since the last stats line (see activity_log.stats).
 local stats_interval = 200
@@ -186,6 +203,25 @@ local function set_field(object, field, value)
     object[field] = value
 end
 
+-- The plugin's image with the given name in a folder of its resources, if there is one.
+---@param images table?
+---@param name string
+---@return PluginResource?
+local function resource(images, name)
+    return images and (images[name] or images[name .. ".png"]) or nil
+end
+
+---@return table?
+local function frames()
+    return Plugin.resources and Plugin.resources.frames
+end
+
+-- The grey copies of the images, for tinting.
+---@return table?
+local function tintable_frames()
+    return Plugin.resources and Plugin.resources.frames_tintable
+end
+
 ---@param sprite_id integer
 ---@return (PluginResource|integer)?
 local function image_for(sprite_id)
@@ -195,11 +231,12 @@ local function image_for(sprite_id)
     local image = image_cache[sprite_id]
     if image == nil then
         image = false
-        local frames = Plugin.resources and Plugin.resources.frames
         local found, sprite_name = pcall(id.Sprite.FromID, sprite_id)
         local group = found and sprite_name and sprite_groups.group_of(sprite_name)
         if group and swapped_groups[group] then
-            image = frames and (frames[sprite_name] or frames[sprite_name .. ".png"]) or stand_in_for(sprite_name) or false
+            local tintable_image = tint and resource(tintable_frames(), sprite_name)
+            image = tintable_image or resource(frames(), sprite_name) or stand_in_for(sprite_name) or false
+            tinted_cache[sprite_id] = tintable_image ~= nil and tintable_image ~= false
             changes_often_cache[sprite_id] = sprite_groups.is_window_contents(group)
             checked_while_hidden_cache[sprite_id] = sprite_groups.is_checked_while_hidden(group)
         end
@@ -245,13 +282,13 @@ local function image_for_part(component, sprite_id)
     if not image then
         return nil
     end
-    local resources = Plugin.resources or {}
+    -- These follow the sprite's own image: a grey copy where that is one.
+    local is_tinted = tinted_cache[sprite_id]
     if sprite_id == side_tile_id and is_title_strip_side(component) then
-        return resources.side_without_edge or resources["side_without_edge.png"] or image
+        return resource(Plugin.resources, is_tinted and "side_without_edge_tintable" or "side_without_edge") or image
     end
     if sprite_id == title_plate_id and component.x ~= title_corner_width then
-        local frames = resources.frames or {}
-        return frames[title_bar_image] or frames[title_bar_image .. ".png"] or image
+        return resource(is_tinted and tintable_frames() or frames(), title_bar_image) or image
     end
     return image
 end
@@ -284,6 +321,60 @@ end
 ---@return boolean # Whether it took.
 local function set_sprite(part, sprite)
     return (pcall(set_field, part, "sprite", sprite))
+end
+
+-- A sprite part's tint as 0xRRGGBB: a sprite component's own, or sprite data's (whose rgba has
+-- alpha too).
+---@param part ui.Sprite|ui.SpriteData
+---@param field string
+---@return integer?
+local function read_tint(part, field)
+    if field == "" then
+        local found, rgb = pcall(get_field, part, "rgb")
+        return found and rgb or nil
+    end
+    local found, rgba = pcall(get_field, part, "rgba")
+    return found and rgba and math.floor(rgba / 256) or nil
+end
+
+---@param part ui.Sprite|ui.SpriteData
+---@param field string
+---@param rgb integer
+---@return boolean # Whether it took.
+local function write_tint(part, field, rgb)
+    if field == "" then
+        return (pcall(set_field, part, "rgb", rgb))
+    end
+    local found, rgba = pcall(get_field, part, "rgba")
+    if not found or rgba == nil then
+        return false
+    end
+    return (pcall(set_field, part, "rgba", rgb * 256 + rgba % 256))
+end
+
+-- Tints a part drawing a grey copy with the colour scheme's colour, on top of the tint the game
+-- gave it. Again when the game has set its own tint since.
+---@param part ui.Sprite|ui.SpriteData
+---@param field string
+---@param sprite_id integer The game sprite the part's image stands for.
+---@param known SwappedPart? What's known of the part from before.
+---@return integer?, integer? # The game's tint and the one applied, or nothing if it isn't tinted.
+local function tint_part(part, field, sprite_id, known)
+    if tint == nil or not tinted_cache[sprite_id] then
+        return nil, nil
+    end
+    local rgb = read_tint(part, field)
+    if rgb == nil then
+        return nil, nil
+    end
+    if known and known.applied_rgb == rgb then
+        return known.original_rgb, known.applied_rgb
+    end
+    local applied_rgb = colour_scheme.multiplied(rgb, tint)
+    if not write_tint(part, field, applied_rgb) then
+        return nil, nil
+    end
+    return rgb, applied_rgb
 end
 
 -- Parts the game changed lately, like the button under the mouse, which the game sets to its hover
@@ -396,6 +487,7 @@ local function swap_part(component, field)
             activity_log.first_swap(watch.update_number, component.interfaceID)
         end
     end
+    local original_rgb, applied_rgb = tint_part(part, field, sprite_id, known)
     swapped_parts[key] = {
         interface_id = component.interfaceID,
         static_id = component.staticID,
@@ -408,6 +500,8 @@ local function swap_part(component, field)
         changes_often = changes_often_cache[sprite_id] == true,
         checked_while_hidden = checked_while_hidden_cache[sprite_id] == true,
         in_use = interface_ids_in_use[component.interfaceID] or (swapped_parts[key] ~= nil and swapped_parts[key].in_use),
+        original_rgb = original_rgb,
+        applied_rgb = applied_rgb,
     }
     return true
 end
@@ -447,6 +541,27 @@ local function write_colour(component, field, rgb)
     return (pcall(set_field, text, "rgba", rgb * 256 + rgba % 256))
 end
 
+-- The colour to give a text or rectangle with the given game colour: the old look's, in the
+-- colour scheme's colour. Nil if it has none.
+---@param rgb integer
+---@param is_text boolean
+---@return integer?
+local function old_colour_for(rgb, is_text)
+    local key = is_text and -1 - rgb or rgb
+    local old_rgb = old_colour_cache[key]
+    if old_rgb == nil then
+        if is_text then
+            old_rgb = skin_palette.old_text_colour(rgb)
+            old_rgb = old_rgb and tint and colour_scheme.tinted_text(old_rgb, tint) or old_rgb
+        else
+            old_rgb = skin_palette.old_colour(rgb)
+            old_rgb = old_rgb and tint and colour_scheme.tinted(old_rgb, tint) or old_rgb
+        end
+        old_colour_cache[key] = old_rgb or false
+    end
+    return old_rgb or nil
+end
+
 ---@param component ui.Component
 ---@param field string
 ---@return boolean # Whether it has the old colour.
@@ -455,7 +570,7 @@ local function recolour(component, field, is_text)
     if rgb == nil then
         return false
     end
-    local old_rgb = is_text and skin_palette.old_text_colour(rgb) or skin_palette.old_colour(rgb)
+    local old_rgb = old_colour_for(rgb, is_text)
     -- This runs for every text and rectangle walked, and most have nothing to change: those are
     -- told by their colour alone, without working out the part's key (which reads four IDs).
     if old_rgb == nil then
@@ -650,6 +765,9 @@ local function reswap_if_changed(key, swapped, between_updates)
         -- What the game shows now is what it should get back when stopped.
         swapped.original_sprite_id = sprite_id
     end
+    if tint then
+        swapped.original_rgb, swapped.applied_rgb = tint_part(part, swapped.field, swapped.original_sprite_id, swapped)
+    end
 end
 
 -- The parts not checked after every update get checked in turns, a few each time. A hidden part
@@ -733,8 +851,7 @@ local function recolour_changed_parts()
             checked = checked + 1
             recoloured.visible = component.visibleGlobal
             local rgb = read_colour(component, recoloured.field)
-            local old_rgb = rgb and rgb ~= recoloured.applied_rgb
-                and (recoloured.is_text and skin_palette.old_text_colour(rgb) or skin_palette.old_colour(rgb))
+            local old_rgb = rgb and rgb ~= recoloured.applied_rgb and old_colour_for(rgb, recoloured.is_text)
             if old_rgb and write_colour(component, recoloured.field, old_rgb) then
                 recoloured.original_rgb = rgb
                 recoloured.applied_rgb = old_rgb
@@ -792,6 +909,9 @@ local function restore_swapped_parts()
         if part and part.spriteID == swapped.applied_sprite_id then
             set_sprite(part, swapped.original_sprite_id)
         end
+        if part and swapped.applied_rgb and read_tint(part, swapped.field) == swapped.applied_rgb then
+            write_tint(part, swapped.field, swapped.original_rgb)
+        end
     end
     swapped_parts = {}
     other_round = {}
@@ -804,16 +924,22 @@ local function restore_swapped_parts()
         end
     end
     recoloured_parts = {}
+    applied_colours = {}
 end
 
 -- Swaps the sprites in the given groups (names from sprite_groups).
 ---@param groups table<string, boolean>
-function sprite_swapper.start(groups)
+---@param scheme_tint integer? The colour scheme's tint (see colour_scheme), or nil for the classic look.
+function sprite_swapper.start(groups, scheme_tint)
     sprite_swapper.stop()
     swapped_groups = groups
+    -- Without the grey copies (resources not loaded yet) the classic look is all there is.
+    tint = tintable_frames() and scheme_tint or nil
     image_cache = {}
     changes_often_cache = {}
     checked_while_hidden_cache = {}
+    tinted_cache = {}
+    old_colour_cache = {}
     watch = interface_watcher.start(subscription_name, swap)
     Event.Draw.Subscribe(draw_subscription_name, guard.guarded("before a frame", before_frame))
 end
