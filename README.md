@@ -19,20 +19,20 @@ It turns on when the plugin loads, and the game's own look comes back when the p
 
 ## Settings
 
-Open the plugin's settings with the gear on its row in the Plugin Hub's Manage tab. They're in three tabs: Look, Colours and Text. Under **Look**, each part can be turned on and off, and changes show right away:
+Open the plugin's page with its icon in the ribbon, and press **Open settings**. The settings are in a window of their own, which you can move and resize, so you can see the interface change behind it. It has three tabs: Look, Colours and Text. Under **Look**, each part can be turned on and off, and changes show right away:
 
 - **Window frames**: the frames, title bars and tabs of windows.
 - **Window backgrounds**: window backgrounds, and the coloured panels in their lists.
 - **Buttons and controls**: buttons, dropdowns, list rows, checkboxes, input boxes, sliders and scrollbars.
 - **Text colours**: turn this off to keep the new text colours, which some find easier to read.
 
-The **Colours** tab has the **colour scheme**. Classic blue draws the old interface as it was. The others (Crimson, Emerald, Amethyst, Bronze, Teal, Steel) draw it in one colour: the plugin draws grey copies of the old images (`resources/frames_tintable`, made by `tools/frames/make_tintable.cjs`) and has the game tint them, so the gold and red details take the scheme's colour too. Panels and blue-grey text follow the scheme; gold headings stay gold (see [`src/game/colour_scheme.lua`](src/game/colour_scheme.lua)).
+The **Colours** tab has the **colour scheme**. Classic blue draws the old interface as it was. DarkScape draws DarkScape's own interface (2015-16): its versions of the old pieces (`resources/frames_darkscape`, made by `tools/frames/update_darkscape.sh` from its last cache), with the main game's buttons and controls, which it kept. The few pieces it had no version of are tinted to match. The others (Crimson, Emerald, Amethyst, Bronze, Teal, Steel) draw it in one colour: the plugin draws grey copies of the old images (`resources/frames_tintable`, made by `tools/frames/make_tintable.cjs`) and has the game tint them, so the gold and red details take the scheme's colour too. Panels and blue-grey text follow the scheme; gold headings stay gold (see [`src/game/colour_scheme.lua`](src/game/colour_scheme.lua)).
 
-Choosing **Custom** shows its colours to pick: a main colour for everything, and a colour of its own for any part of the interface that should differ (window frames, title bars, tabs, backgrounds, buttons and other controls). Pick a colour or type its hex value (like `#4A87FF`) and press Enter; clear a part's value and press Enter to have it follow the main colour again. Which images belong to which part is decided by their names (see `colour_parts` in [`src/game/sprite_groups.lua`](src/game/sprite_groups.lua)), and an image has one colour, so a corner piece with an ornament on it is coloured as a whole.
+Choosing **Custom** shows its colour to pick. Below the scheme, under **Your own colours**, any part of the interface can have a colour of your own in whichever scheme is chosen: window frames, title bars, tabs, backgrounds, dropdowns, checkboxes and radio buttons, scrollbars, sliders, list rows and input boxes, buttons, and the close and +/- buttons. Pick a colour or type its hex value (like `#4A87FF`) and press Enter; clear a part's value and press Enter to go back to the scheme's. Which images belong to which part is decided by their names (see `colour_parts` in [`src/game/sprite_groups.lua`](src/game/sprite_groups.lua)), and an image has one colour, so a corner piece with an ornament on it is coloured as a whole.
 
 In the **Text** tab you can pick your own colour for headings (gold in the old look) and for other text (blue-grey), in any colour scheme; a button goes back to the scheme's own. They only apply while the Text colours option is on in the Look tab.
 
-Each option covers a few groups of the game's images (see [`src/game/sprite_groups.lua`](src/game/sprite_groups.lua)). The plugin depends on the [prettyui](https://prettyui.j3.gg/) plugin for its settings page (see `plugin.json`).
+Each option covers a few groups of the game's images (see [`src/game/sprite_groups.lua`](src/game/sprite_groups.lua)). The plugin depends on the [prettyui](https://prettyui.j3.gg/) plugin for its page and settings window (see `plugin.json`).
 
 ## What it leaves alone, and why
 

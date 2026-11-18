@@ -14,7 +14,7 @@
 --
 -- In a colour scheme other than the classic one (see colour_scheme), grey copies of the images are
 -- drawn and each part is tinted with the scheme's colour, or the player's own for that part of
--- the interface.
+-- the interface. A scheme's own images are drawn as they are.
 local interface_walker = require("src/game/interface_walker")
 local interface_watcher = require("src/game/interface_watcher")
 local sprite_groups = require("src/game/sprite_groups")
@@ -78,6 +78,9 @@ local checked_while_hidden_cache = {}
 -- that keep their own colours: those drawn as they were, stand-ins, and ones without a grey copy.
 ---@type table<integer, integer|false>
 local tint_cache = {}
+-- Whether each swapped sprite's image is one of the colour scheme's own, by sprite ID.
+---@type table<integer, boolean>
+local from_scheme_cache = {}
 
 -- Each swapped part's component IDs, field, and the game sprite it had, keyed by
 -- interface_walker.component_key and the field. When the game rebuilds a component it keeps its
@@ -225,6 +228,13 @@ local function tintable_frames()
     return Plugin.resources and Plugin.resources.frames_tintable
 end
 
+-- The colour scheme's own images, if it has any.
+---@return table?
+local function scheme_frames()
+    local image_set = scheme_colours.image_set
+    return image_set and Plugin.resources and Plugin.resources["frames_" .. image_set] or nil
+end
+
 ---@param sprite_id integer
 ---@return (PluginResource|integer)?
 local function image_for(sprite_id)
@@ -237,10 +247,14 @@ local function image_for(sprite_id)
         local found, sprite_name = pcall(id.Sprite.FromID, sprite_id)
         local group = found and sprite_name and sprite_groups.group_of(sprite_name)
         if group and swapped_groups[group] then
-            local tint = colour_scheme.part_tint(scheme_colours, sprite_groups.colour_part_of(sprite_name))
+            -- The player's own colour for the sprite's part comes before the scheme's own image.
+            local part_key = sprite_groups.colour_part_of(sprite_name)
+            local scheme_image = not colour_scheme.own_part_tint(scheme_colours, part_key) and resource(scheme_frames(), sprite_name)
+            local tint = not scheme_image and colour_scheme.sprite_tint(scheme_colours, sprite_name, part_key)
             local tintable_image = tint and resource(tintable_frames(), sprite_name)
-            image = tintable_image or resource(frames(), sprite_name) or stand_in_for(sprite_name) or false
+            image = scheme_image or tintable_image or resource(frames(), sprite_name) or stand_in_for(sprite_name) or false
             tint_cache[sprite_id] = tintable_image and tint or false
+            from_scheme_cache[sprite_id] = scheme_image and true or false
             changes_often_cache[sprite_id] = sprite_groups.is_window_contents(group)
             checked_while_hidden_cache[sprite_id] = sprite_groups.is_checked_while_hidden(group)
         end
@@ -286,13 +300,15 @@ local function image_for_part(component, sprite_id)
     if not image then
         return nil
     end
-    -- These follow the sprite's own image: a grey copy where that is one.
+    -- These follow the sprite's own image: the scheme's, or a grey copy, where that is one.
     local is_tinted = tint_cache[sprite_id]
+    local set_suffix = from_scheme_cache[sprite_id] and "_" .. scheme_colours.image_set or is_tinted and "_tintable" or ""
     if sprite_id == side_tile_id and is_title_strip_side(component) then
-        return resource(Plugin.resources, is_tinted and "side_without_edge_tintable" or "side_without_edge") or image
+        return resource(Plugin.resources, "side_without_edge" .. set_suffix) or image
     end
     if sprite_id == title_plate_id and component.x ~= title_corner_width then
-        return resource(is_tinted and tintable_frames() or frames(), title_bar_image) or image
+        local images = from_scheme_cache[sprite_id] and scheme_frames() or is_tinted and tintable_frames() or frames()
+        return resource(images, title_bar_image) or image
     end
     return image
 end
@@ -356,6 +372,8 @@ local function write_tint(part, field, rgb)
     return (pcall(set_field, part, "rgba", rgb * 256 + rgba % 256))
 end
 
+local untinted_rgb = 0x000000
+
 -- Tints a part drawing a grey copy with its colour (see tint_cache), on top of the tint the game
 -- gave it. Again when the game has set its own tint since.
 ---@param part ui.Sprite|ui.SpriteData
@@ -375,7 +393,10 @@ local function tint_part(part, field, sprite_id, known)
     if known and known.applied_rgb == rgb then
         return known.original_rgb, known.applied_rgb
     end
-    local applied_rgb = colour_scheme.multiplied(rgb, tint)
+    -- Many sprites (most of the Bank's) have black as their tint and are drawn untinted all the
+    -- same: for a sprite, the game takes black as no tint.
+    local game_tint = rgb == untinted_rgb and 0xFFFFFF or rgb
+    local applied_rgb = colour_scheme.multiplied(game_tint, tint)
     if not write_tint(part, field, applied_rgb) then
         return nil, nil
     end
@@ -940,19 +961,28 @@ function sprite_swapper.start(groups, colours)
     sprite_swapper.stop()
     swapped_groups = groups
     colours = colours or {}
-    -- Without the grey copies (resources not loaded yet) nothing can be tinted.
-    local can_tint = tintable_frames() ~= nil
+    -- Without the grey copies (resources not loaded yet) nothing can be tinted, and without a
+    -- scheme's own images it's drawn as the classic scheme: its tints are only for what those
+    -- images leave out.
+    local resources = Plugin.resources or {}
+    local has_images = colours.image_set == nil or resources["frames_" .. colours.image_set] ~= nil
+    local can_tint = has_images and tintable_frames() ~= nil
     scheme_colours = {
         tint = can_tint and colours.tint or nil,
         part_tints = can_tint and colours.part_tints or nil,
+        own_part_tints = tintable_frames() ~= nil and colours.own_part_tints or nil,
+        sprite_tints = can_tint and colours.sprite_tints or nil,
+        image_set = has_images and colours.image_set or nil,
         heading_text = colours.heading_text,
         body_text = colours.body_text,
     }
     tints_parts = scheme_colours.tint ~= nil or next(scheme_colours.part_tints or {}) ~= nil
+        or next(scheme_colours.sprite_tints or {}) ~= nil or next(scheme_colours.own_part_tints or {}) ~= nil
     image_cache = {}
     changes_often_cache = {}
     checked_while_hidden_cache = {}
     tint_cache = {}
+    from_scheme_cache = {}
     old_colour_cache = {}
     watch = interface_watcher.start(subscription_name, swap)
     Event.Draw.Subscribe(draw_subscription_name, guard.guarded("before a frame", before_frame))

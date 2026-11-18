@@ -108,13 +108,12 @@ sprite_groups.all = {
     },
 }
 
--- Sprites with no old version (added after the old cache), and a built-in sprite to draw instead:
--- the mobile versions still have the old blue look.
+-- Sprites with no image of the plugin's, and a built-in sprite to draw instead. None at the
+-- moment: a built-in sprite can't be tinted to a colour scheme, so the sprites added since the old
+-- cache get images made from their mobile versions, which still have the old look (see
+-- tools/frames/install.cjs).
 ---@type table<string, string>
-sprite_groups.stand_ins = {
-    BUTTON_ACCORDION_24PX = "BUTTON_ACCORDION_24PX_MOBILE",
-    BUTTON_ACCORDION_20PX = "BUTTON_ACCORDION_20PX_MOBILE",
-}
+sprite_groups.stand_ins = {}
 
 -- What players can turn on and off in the settings, each a few groups. Every group is in one.
 ---@class SpriteGroupOption
@@ -196,28 +195,32 @@ sprite_groups.colour_parts = {
         label = "Backgrounds",
         patterns = { "^RS3_[A-Z_]*CONTENT_TILE$", "^RS3_CONTENT_FRAME_4$", "^RS3_PARENT_CONTENT_TAB_FRAME_4$" },
     },
+    { key = "dropdowns", label = "Dropdowns", patterns = { "^RS3_BTN_DROPDOWN", "^DROPDOWN_" } },
     {
-        key = "controls",
-        label = "Other controls",
+        key = "checkboxes",
+        label = "Checkboxes and radio buttons",
+        patterns = { "^RS3_BTN_CHECKBOX", "^RS3_BTN_RADIO", "^CHECKBOX_" },
+    },
+    { key = "scrollbars", label = "Scrollbars", patterns = { "^SCROLLBAR_" } },
+    { key = "sliders", label = "Sliders", patterns = { "^RS3_BTN_ADJUST_SLIDER", "^RS3_SLIDER_" } },
+    {
+        key = "rows",
+        label = "List rows and input boxes",
+        patterns = { "^RS3_CONTENT_CONTAINER", "^RS3_CONTEXTUAL_INPUT_BOX", "^INPUT_" },
+    },
+    {
+        -- Before the buttons, whose patterns match these too.
+        key = "small_buttons",
+        label = "Close and +/- buttons",
         patterns = {
-            "^RS3_BTN_DROPDOWN",
-            "^RS3_BTN_CHECKBOX",
-            "^RS3_BTN_RADIO",
-            "^RS3_BTN_ADJUST_SLIDER",
-            "^RS3_SLIDER_",
-            "^SCROLLBAR_",
-            "^RS3_CONTENT_CONTAINER",
-            "^RS3_CONTEXTUAL_INPUT_BOX",
-            "^CHECKBOX_",
-            "^INPUT_",
-            "^DROPDOWN_",
+            "^RS3_BTN_[A-Z]+CREASE_",
+            "^RS3_BTN_MODAL_WINDOW_1_CLOSE_",
+            "^RS3_BUTTON_CLOSE_",
+            "^RS3_BUTTON_LOGOUT_",
+            "^RS3_CHILD_CLOSE_BUTTON_",
         },
     },
-    {
-        key = "buttons",
-        label = "Buttons",
-        patterns = { "^RS3_BTN_", "^RS3_BUTTON_", "^BUTTON_", "^RS3_CHILD_CLOSE_BUTTON_" },
-    },
+    { key = "buttons", label = "Buttons", patterns = { "^RS3_BTN_", "^RS3_BUTTON_", "^BUTTON_" } },
 }
 
 ---@param sprite_name string

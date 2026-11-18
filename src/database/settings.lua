@@ -10,6 +10,12 @@ local custom_tint_key = "custom_tint"
 local own_text_colours_key = "own_text_colours"
 local heading_text_key = "heading_text"
 local body_text_key = "body_text"
+local window_x_key = "window_x"
+local window_y_key = "window_y"
+local window_width_key = "window_width"
+local window_height_key = "window_height"
+local default_window_width = 400
+local default_window_height = 520
 
 ---@param option_key string
 ---@return string
@@ -120,8 +126,8 @@ local function part_tint_key(part_key)
     return "part_tint_" .. part_key
 end
 
--- The player's own colour for a part of the interface in the custom scheme, or nil while it has
--- the scheme's colour.
+-- The player's own colour for a part of the interface, in any scheme, or nil while it's drawn
+-- as the scheme has it.
 ---@param part_key string
 ---@return integer?
 function settings.part_tint(part_key)
@@ -134,20 +140,51 @@ function settings.set_part_tint(part_key, rgb)
     PersistentDB:SetString(part_tint_key(part_key), rgb and string.format("%06X", rgb) or "")
 end
 
+-- Where the settings window was when it was last closed, or nil before it's been closed.
+---@return integer? x
+---@return integer? y
+function settings.window_position()
+    local x, y = PersistentDB:GetInt(window_x_key), PersistentDB:GetInt(window_y_key)
+    if x == nil or y == nil then
+        return nil, nil
+    end
+    return x, y
+end
+
+-- How big the settings window was when it was last closed, or its size to start with.
+---@return integer width
+---@return integer height
+function settings.window_size()
+    return PersistentDB:GetInt(window_width_key) or default_window_width,
+        PersistentDB:GetInt(window_height_key) or default_window_height
+end
+
+---@param x number
+---@param y number
+---@param width number
+---@param height number
+function settings.set_window_bounds(x, y, width, height)
+    PersistentDB:SetInt(window_x_key, math.floor(x))
+    PersistentDB:SetInt(window_y_key, math.floor(y))
+    PersistentDB:SetInt(window_width_key, math.floor(width))
+    PersistentDB:SetInt(window_height_key, math.floor(height))
+end
+
 -- Everything the chosen look is drawn in.
 ---@return SchemeColours
 function settings.colours()
     local has_own_text_colours = settings.has_own_text_colours()
-    -- Parts only have their own colours in the custom scheme: the other schemes are one colour.
-    local part_tints = {}
-    if settings.colour_scheme() == colour_scheme.custom_key then
-        for _, part in ipairs(sprite_groups.colour_parts) do
-            part_tints[part.key] = settings.part_tint(part.key)
-        end
+    local scheme = colour_scheme.find(settings.colour_scheme()) or {}
+    local own_part_tints = {}
+    for _, part in ipairs(sprite_groups.colour_parts) do
+        own_part_tints[part.key] = settings.part_tint(part.key)
     end
     return {
         tint = settings.tint(),
-        part_tints = part_tints,
+        part_tints = scheme.part_tints,
+        own_part_tints = own_part_tints,
+        sprite_tints = scheme.sprite_tints,
+        image_set = scheme.image_set,
         heading_text = has_own_text_colours and settings.heading_text() or nil,
         body_text = has_own_text_colours and settings.body_text() or nil,
     }

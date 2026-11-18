@@ -396,11 +396,14 @@ local tinted_button = { interfaceID = 18, staticID = 3, categoryID = -1, dynamic
   sprite = sprite(18, 3, 101, true), text = { rgba = 0xE3D7CFFF, content = "Ok" } }
 tinted_button.sprite.rgba = 0xFFFFFF80
 local tinted_card = { interfaceID = 18, staticID = 4, categoryID = -1, dynamicID = -1, type = ui.ComponentType.RECTANGLE, visibleGlobal = true, rgb = 0x24211E }
-load(18, { [0] = tinted, [1] = dimmed, [2] = without_grey_copy, [3] = tinted_button, [4] = tinted_card })
+-- a sprite whose tint is black is drawn untinted by the game (most of the Bank's are)
+local black_tinted = sprite(18, 5, 101, true); black_tinted.rgb = 0x000000
+load(18, { [0] = tinted, [1] = dimmed, [2] = without_grey_copy, [3] = tinted_button, [4] = tinted_card, [5] = black_tinted })
 fresh_swapper.start(groups.names(all_on), { tint = 0xFF0000 })
 tick(5)
 assert(tinted.image == "grey_btn0" and tinted.rgb == 0xFF0000, "a grey copy is drawn, tinted")
 assert(dimmed.rgb == 0x800000, "the game's own tint stays under the scheme's")
+assert(black_tinted.image == "grey_btn0" and black_tinted.rgb == 0xFF0000, "a sprite with black for its tint takes the scheme's whole")
 assert(without_grey_copy.image == "img_side" and without_grey_copy.rgb == 0xFFFFFF, "an image without a grey copy keeps its colours")
 assert(tinted_button.sprite.image == "grey_btn0" and tinted_button.sprite.rgba == 0xFF000080, "a button's sprite is tinted, its transparency kept")
 assert(tinted_card.rgb == 0x480000, "a panel gets the old colour in the scheme's colour")
@@ -417,6 +420,7 @@ assert(tinted.rgb == 0x400000, "a new tint from the game gets the scheme's on to
 fresh_swapper.stop()
 assert(tinted.spriteID == 102 and tinted.rgb == 0x404040, "stopping gives back the game's sprite and tint")
 assert(dimmed.rgb == 0x808080 and tinted_button.sprite.rgba == 0xFFFFFF80 and tinted_card.rgb == 0x24211E, "for every part")
+assert(black_tinted.rgb == 0x000000, "and black again where it was")
 
 -- without the grey copies (resources not loaded yet), a scheme falls back to the classic look
 Plugin.resources.frames_tintable = nil
@@ -433,7 +437,7 @@ local part_button = sprite(20, 0, 101, true); part_button.rgb = 0xFFFFFF
 local part_frame = sprite(20, 1, 100, true); part_frame.rgb = 0xFFFFFF; part_frame.height = 1
 local part_card = { interfaceID = 20, staticID = 2, categoryID = -1, dynamicID = -1, type = ui.ComponentType.RECTANGLE, visibleGlobal = true, rgb = 0x24211E }
 load(20, { [0] = part_button, [1] = part_frame, [2] = part_card })
-fresh_swapper.start(groups.names(all_on), { part_tints = { buttons = 0x00FF00 } })
+fresh_swapper.start(groups.names(all_on), { own_part_tints = { buttons = 0x00FF00 } })
 tick(5)
 assert(part_button.image == "grey_btn0" and part_button.rgb == 0x00FF00, "a part with its own colour is tinted with it in the classic scheme")
 assert(part_frame.image == "img_side" and part_frame.rgb == 0xFFFFFF, "the other parts are drawn as they were")
@@ -443,6 +447,43 @@ tick(5)
 assert(part_button.rgb == 0x00FF00, "a part's own colour comes before the scheme's")
 assert(part_frame.image == "grey_side" and part_frame.rgb == 0xFF0000, "the other parts get the scheme's")
 assert(part_card.rgb == 0x000048, "panels get the backgrounds' colour")
+-- a scheme can single out sprites by name
+fresh_swapper.start(groups.names(all_on), {
+  tint = 0xFF0000, part_tints = { buttons = 0x00FF00 },
+  sprite_tints = { { pattern = "^RS3_BTN_MAIN_NEUTRAL_0$", tint = 0x0000FF } },
+})
+tick(5)
+assert(part_button.rgb == 0x0000FF, "a tint for sprites of a name comes before their part's")
+assert(part_frame.rgb == 0xFF0000, "the others keep their part's or the scheme's")
+
+-- a scheme with images of its own: those are drawn as they are, the sprites it has none for as
+-- in the classic scheme, or tinted where it has a tint for them
+names[104] = "RS3_CHILD_HEADER_TILE"
+id.Sprite.RS3_CHILD_HEADER_TILE = 104
+Plugin.resources.frames.RS3_CHILD_HEADER_TILE = "img_header"
+Plugin.resources.frames_tintable.RS3_CHILD_HEADER_TILE = "grey_header"
+Plugin.resources.frames_other = { RS3_PARENT_FRAME_SIDE_TILE = "other_side" }
+Plugin.resources.side_without_edge_other = "other_side_without_edge"
+local set_header = sprite(20, 4, 104, true); set_header.rgb = 0xFFFFFF
+local set_strip_side = sprite(20, 5, 100, true); set_strip_side.rgb = 0xFFFFFF
+set_strip_side.parent = { height = 10 }
+loaded[20][4] = set_header
+loaded[20][5] = set_strip_side
+local other_scheme = { image_set = "other", sprite_tints = { { pattern = "^RS3_CHILD_HEADER_", tint = 0x0000FF } } }
+fresh_swapper.start(groups.names(all_on), other_scheme)
+tick(5)
+assert(part_frame.image == "other_side" and part_frame.rgb == 0xFFFFFF, "the scheme's own image, untinted")
+assert(set_strip_side.image == "other_side_without_edge", "and its own side piece for the title strip")
+assert(part_button.image == "img_btn0" and part_button.rgb == 0xFFFFFF, "a sprite it has no image for is drawn as in the classic scheme")
+assert(set_header.image == "grey_header" and set_header.rgb == 0x0000FF, "or tinted where the scheme has a tint for it")
+-- the player's own colour for a part comes before the scheme's image for it
+fresh_swapper.start(groups.names(all_on), { image_set = "other", own_part_tints = { frames = 0x00FF00 } })
+tick(5)
+assert(part_frame.image == "grey_side" and part_frame.rgb == 0x00FF00, "the part is tinted with the player's colour, not drawn with the scheme's image")
+Plugin.resources.frames_other = nil
+fresh_swapper.start(groups.names(all_on), other_scheme)
+tick(5)
+assert(part_frame.image == "img_side" and set_header.image == "img_header" and set_header.rgb == 0xFFFFFF, "without its images loaded, a scheme is drawn as the classic one")
 fresh_swapper.stop()
 assert(part_button.rgb == 0xFFFFFF and part_frame.rgb == 0xFFFFFF and part_card.rgb == 0x24211E, "stopping gives everything back")
 Plugin.resources.frames_tintable = nil
