@@ -1,6 +1,7 @@
 -- The player's choices from the settings page, saved between sessions. Everything is on unless
 -- turned off, and the colour scheme is the classic one unless another is chosen.
 local colour_scheme = require("src/game/colour_scheme")
+local sprite_groups = require("src/game/sprite_groups")
 
 local settings = {}
 
@@ -113,12 +114,40 @@ function settings.tint()
     return colour_scheme.tint_of(settings.colour_scheme(), settings.custom_tint())
 end
 
+---@param part_key string A key from sprite_groups.colour_parts.
+---@return string
+local function part_tint_key(part_key)
+    return "part_tint_" .. part_key
+end
+
+-- The player's own colour for a part of the interface in the custom scheme, or nil while it has
+-- the scheme's colour.
+---@param part_key string
+---@return integer?
+function settings.part_tint(part_key)
+    return tonumber(saved_text(part_tint_key(part_key)) or "", 16)
+end
+
+---@param part_key string
+---@param rgb integer? Nil for the scheme's colour again.
+function settings.set_part_tint(part_key, rgb)
+    PersistentDB:SetString(part_tint_key(part_key), rgb and string.format("%06X", rgb) or "")
+end
+
 -- Everything the chosen look is drawn in.
 ---@return SchemeColours
 function settings.colours()
     local has_own_text_colours = settings.has_own_text_colours()
+    -- Parts only have their own colours in the custom scheme: the other schemes are one colour.
+    local part_tints = {}
+    if settings.colour_scheme() == colour_scheme.custom_key then
+        for _, part in ipairs(sprite_groups.colour_parts) do
+            part_tints[part.key] = settings.part_tint(part.key)
+        end
+    end
     return {
         tint = settings.tint(),
+        part_tints = part_tints,
         heading_text = has_own_text_colours and settings.heading_text() or nil,
         body_text = has_own_text_colours and settings.body_text() or nil,
     }

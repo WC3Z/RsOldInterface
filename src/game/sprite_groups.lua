@@ -151,6 +151,88 @@ sprite_groups.options = {
     },
 }
 
+-- The parts of the interface that can each have their own colour (see colour_scheme). A sprite
+-- belongs to the first part with a matching name pattern, and to the frames if none matches.
+---@class ColourPart
+---@field key string Saved under this name.
+---@field label string
+---@field patterns string[]
+
+sprite_groups.frames_part = "frames"
+-- Plain coloured panels, which aren't sprites, belong to this part.
+sprite_groups.panels_part = "backgrounds"
+
+---@type ColourPart[]
+sprite_groups.colour_parts = {
+    { key = sprite_groups.frames_part, label = "Window frames", patterns = {} },
+    {
+        key = "title_bars",
+        label = "Title bars",
+        patterns = {
+            "^RS3_PARENT_BANNER_",
+            "^RS3_CHILD_[A-Z_]*HEADER_",
+            "^RS3_GHOST_COMPACT_HEADER_",
+            "^RS3_MAIN_MODAL_HEADER_",
+            "^RS3_MODAL_WINDOW_1_TITLE_",
+            "^RS3_MODAL_WINDOW_1_TOP_TILE$",
+            "^RS3_MODAL_WINDOW_1_CLOSE_CORNER$",
+            "^RS3_CHILD_[A-Z_]*TOP_[A-Z_]*TILE$",
+            "^RS3_GHOST_COMPACT_TOP_TILE$",
+        },
+    },
+    {
+        key = "tabs",
+        label = "Tabs",
+        patterns = {
+            "^RS3_CHILD_TAB_",
+            "^RS3_PARENT_TAB_",
+            "^RS3_PARENT_CONTENT_TILEABLE_TAB_%d+$",
+            "^BANK_TABS_",
+            "^RS3_BTN_CHILD_TAB_",
+        },
+    },
+    {
+        key = sprite_groups.panels_part,
+        label = "Backgrounds",
+        patterns = { "^RS3_[A-Z_]*CONTENT_TILE$", "^RS3_CONTENT_FRAME_4$", "^RS3_PARENT_CONTENT_TAB_FRAME_4$" },
+    },
+    {
+        key = "controls",
+        label = "Other controls",
+        patterns = {
+            "^RS3_BTN_DROPDOWN",
+            "^RS3_BTN_CHECKBOX",
+            "^RS3_BTN_RADIO",
+            "^RS3_BTN_ADJUST_SLIDER",
+            "^RS3_SLIDER_",
+            "^SCROLLBAR_",
+            "^RS3_CONTENT_CONTAINER",
+            "^RS3_CONTEXTUAL_INPUT_BOX",
+            "^CHECKBOX_",
+            "^INPUT_",
+            "^DROPDOWN_",
+        },
+    },
+    {
+        key = "buttons",
+        label = "Buttons",
+        patterns = { "^RS3_BTN_", "^RS3_BUTTON_", "^BUTTON_", "^RS3_CHILD_CLOSE_BUTTON_" },
+    },
+}
+
+---@param sprite_name string
+---@return string # The key of the colour part the sprite belongs to.
+function sprite_groups.colour_part_of(sprite_name)
+    for _, part in ipairs(sprite_groups.colour_parts) do
+        for _, pattern in ipairs(part.patterns) do
+            if sprite_name:find(pattern) then
+                return part.key
+            end
+        end
+    end
+    return sprite_groups.frames_part
+end
+
 -- The names of the groups in the options that are on.
 ---@param is_on fun(option_key: string): boolean
 ---@return table<string, boolean>

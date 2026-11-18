@@ -426,6 +426,27 @@ assert(tinted.image == "img_btn1" and tinted.rgb == 0x404040, "classic images, u
 assert(tinted_card.rgb == 0x152648, "and classic colours")
 fresh_swapper.stop()
 
+-- a part of the interface with its own colour: tinted with that, whatever the scheme; the other
+-- parts keep the scheme's, and in the classic scheme their own colours
+Plugin.resources.frames_tintable = { RS3_BTN_MAIN_NEUTRAL_0 = "grey_btn0", RS3_BTN_MAIN_NEUTRAL_1 = "grey_btn1", RS3_PARENT_FRAME_SIDE_TILE = "grey_side" }
+local part_button = sprite(20, 0, 101, true); part_button.rgb = 0xFFFFFF
+local part_frame = sprite(20, 1, 100, true); part_frame.rgb = 0xFFFFFF; part_frame.height = 1
+local part_card = { interfaceID = 20, staticID = 2, categoryID = -1, dynamicID = -1, type = ui.ComponentType.RECTANGLE, visibleGlobal = true, rgb = 0x24211E }
+load(20, { [0] = part_button, [1] = part_frame, [2] = part_card })
+fresh_swapper.start(groups.names(all_on), { part_tints = { buttons = 0x00FF00 } })
+tick(5)
+assert(part_button.image == "grey_btn0" and part_button.rgb == 0x00FF00, "a part with its own colour is tinted with it in the classic scheme")
+assert(part_frame.image == "img_side" and part_frame.rgb == 0xFFFFFF, "the other parts are drawn as they were")
+assert(part_card.rgb == 0x152648, "panels too")
+fresh_swapper.start(groups.names(all_on), { tint = 0xFF0000, part_tints = { buttons = 0x00FF00, backgrounds = 0x0000FF } })
+tick(5)
+assert(part_button.rgb == 0x00FF00, "a part's own colour comes before the scheme's")
+assert(part_frame.image == "grey_side" and part_frame.rgb == 0xFF0000, "the other parts get the scheme's")
+assert(part_card.rgb == 0x000048, "panels get the backgrounds' colour")
+fresh_swapper.stop()
+assert(part_button.rgb == 0xFFFFFF and part_frame.rgb == 0xFFFFFF and part_card.rgb == 0x24211E, "stopping gives everything back")
+Plugin.resources.frames_tintable = nil
+
 -- the player's own text colours replace the old look's, in any scheme
 local heading = { interfaceID = 19, staticID = 0, categoryID = -1, dynamicID = -1, type = ui.ComponentType.LABEL, visibleGlobal = true, rgb = 0xF0BE79, content = "Heading" }
 local body = { interfaceID = 19, staticID = 1, categoryID = -1, dynamicID = -1, type = ui.ComponentType.LABEL, visibleGlobal = true, rgb = 0xE3D7CF, content = "Body" }

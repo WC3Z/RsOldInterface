@@ -31,6 +31,7 @@ colour_scheme.all = {
 -- What a look is drawn in: a scheme's tint, and the player's own text colours if they chose any.
 ---@class SchemeColours
 ---@field tint integer? 0xRRGGBB, or nil for the classic scheme.
+---@field part_tints table<string, integer>? The player's own tint for parts of the interface, by sprite_groups.colour_parts key. The other parts have the scheme's.
 ---@field heading_text integer? Replaces the gold of headings.
 ---@field body_text integer? Replaces the blue-grey of other text.
 
@@ -69,6 +70,14 @@ function colour_scheme.tint_of(key, custom_tint)
         end
     end
     return nil
+end
+
+-- The tint to draw a part of the interface with, or nil to draw it as it was.
+---@param colours SchemeColours
+---@param part_key string A key from sprite_groups.colour_parts.
+---@return integer?
+function colour_scheme.part_tint(colours, part_key)
+    return colours.part_tints and colours.part_tints[part_key] or colours.tint
 end
 
 -- A colour the game already tints a part with, with the scheme's tint on top.
