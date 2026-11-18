@@ -1,6 +1,6 @@
 -- Release builds leave out the debug tools (src/debug): the swapping works without them.
 package.path = "./?.lua;" .. package.path
-for _, name in ipairs({ "src/debug/activity_log", "src/debug/profile" }) do
+for _, name in ipairs({ "src/debug/events", "src/debug/activity_log", "src/debug/profile" }) do
     package.preload[name] = function () error(name .. " isn't in release builds") end
 end
 
@@ -30,7 +30,9 @@ ui.Interfaces = {
 }
 
 local debug_tools = require("src/game/debug_tools")
-assert(debug_tools.activity_log.enabled == false and debug_tools.profile.enabled == false, "the stand-ins are switched off")
+assert(debug_tools.events.enabled == false, "the stand-in is switched off")
+debug_tools.events.enable({ profile = true })
+assert(debug_tools.events.enabled == false, "and stays off")
 
 local sprite_swapper = require("src/game/sprite_swapper")
 local sprite_groups = require("src/game/sprite_groups")
