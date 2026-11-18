@@ -45,6 +45,22 @@ Plugins can't replace a game image everywhere at once, only on each part of a wi
 
 The old images are in [`resources/frames/`](resources/frames), each named after the game sprite it replaces. They come from a game cache from before the overhaul (cache 2409 in the [OpenRS2 archive](https://archive.openrs2.org/)), and some are stretched by a pixel or two to fit the current sprites' sizes. Big windows' frames, tabs and title banners are also cut to the current pieces' shapes, as the old ones were drawn for a different window layout. The old colours come from the game's own skin colour lists: the mobile skin still has them.
 
+The code, in the order it's easiest to read:
+
+| File | What it does |
+|---|---|
+| [`main.lua`](main.lua) | Starts the swapping with the saved settings, and the plugin's page |
+| [`src/game/sprite_groups.lua`](src/game/sprite_groups.lua) | Which game sprites are swapped, in groups, and which part of the interface each belongs to |
+| [`src/game/colour_scheme.lua`](src/game/colour_scheme.lua) | The colour schemes, and the colour arithmetic |
+| [`src/game/sprite_images.lua`](src/game/sprite_images.lua) | Which image, and which tint, each game sprite gets in the chosen scheme |
+| [`src/game/sprite_swapper.lua`](src/game/sprite_swapper.lua) | Swaps the sprites, and keeps them swapped when the game sets its own again |
+| [`src/game/recolourer.lua`](src/game/recolourer.lua) | The same for plain colours: panels and text |
+| [`src/game/interface_watcher.lua`](src/game/interface_watcher.lua) | Decides which components to look at when, so new windows are caught before they're drawn |
+| [`src/game/interface_walker.lua`](src/game/interface_walker.lua) | Goes through an interface's components |
+| [`src/game/component_fields.lua`](src/game/component_fields.lua), [`game_ids.lua`](src/game/game_ids.lua), [`skin_palette.lua`](src/game/skin_palette.lua), [`guard.lua`](src/game/guard.lua) | Small helpers: reading and writing components, IDs by name, the game's own old colours, keeping an event handler alive after an error |
+| [`src/interface/`](src/interface), [`src/database/settings.lua`](src/database/settings.lua) | The plugin's page, the settings window, and the saved settings |
+| [`src/debug/`](src/debug) | Tools for developing: what the swapping does and costs, printed to the console. Left out of release builds. Switched on from `main.lua` (see [`src/debug/events.lua`](src/debug/events.lua)) |
+
 ## Known issues
 
 - Parts that turn up in a window that's been open a while (like rows when scrolling a long list, or the first plugin window opened) can show the new look for a few frames.

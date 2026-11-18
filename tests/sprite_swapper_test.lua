@@ -36,7 +36,7 @@ config = { Enum = {
 } }
 
 local function sprite(iface, static, sid, visible)
-  local c = { interfaceID = iface, staticID = static, categoryID = -1, dynamicID = -1, type = ui.ComponentType.SPRITE, spriteID = sid, visibleGlobal = visible, width = 10, height = 10 }
+  local c = { interfaceID = iface, staticID = static, categoryID = -1, dynamicID = -1, type = ui.ComponentType.SPRITE, spriteID = sid, visibleGlobal = visible, x = 0, y = 0, width = 10, height = 10 }
   return setmetatable(c, { __newindex = function (t, k, v)
     if k == "sprite" then rawset(t, "spriteID", type(v) == "number" and v or -1); rawset(t, "image", v) else rawset(t, k, v) end
   end })
@@ -95,7 +95,7 @@ assert(loaded[5][1].spriteID == -1, "hover re-swapped")
 -- a new interface loads at a high ID
 load(1800, { [0] = sprite(1800, 0, 101, true) })
 tick(8)
-assert(loaded[1800][0].spriteID == -1, "new interface found by the spread scan")
+assert(loaded[1800][0].spriteID == -1, "a new interface at a high ID is found")
 
 -- a hidden tab (its own interface) that the game shows and rebuilds in one update
 load(6, { [0] = sprite(6, 0, 101, false), [1] = sprite(6, 1, 999, false) })
@@ -218,18 +218,35 @@ assert(label.rgb == 0xF0BE79, "text left alone with text colours off")
 assert(card.rgb == 0x152648, "cards still recoloured")
 swapper.stop()
 
--- the profiler (a debug aid) runs its reports and benchmark without errors
+-- the debug tools print and count what happens, and run the benchmark, without errors
+local events = require("src/game/debug_tools").events
 local profile = require("src/debug/profile")
 profile.benchmark_iterations = 30
 profile.benchmark_at_update = 20
-quiet = true
-profile.enable()
+local activity_log = require("src/debug/activity_log")
+activity_log.traced_interfaces = { IF5 = true }
+local printed_while_debugging = 0
+local print_before_debugging = print
+print = function (text)
+  printed_while_debugging = printed_while_debugging + 1
+  if tostring(text):find("error") then errors[#errors + 1] = text end
+end
+events.enable({ profile = true, activity_log = true })
 swapper.start(groups.names(all_on))
+tick(5)
+loaded[5][1].spriteID = 102
+label.rgb = 0xF0BE79
+tick(5)
+load(21, { [0] = sprite(21, 0, 101, true), [1] = sprite(21, 1, 999, true) })
 tick(900)
+loaded[21] = nil
+tick(5)
 swapper.stop()
-profile.disable()
-quiet = false
-assert(#errors == 0, "no errors while profiling: " .. tostring(errors[1]))
+events.disable()
+print = print_before_debugging
+assert(#errors == 0, "no errors with the debug tools on: " .. tostring(errors[1]))
+assert(printed_while_debugging > 20, "and they printed what happened")
+assert(loaded[5][1].spriteID == 102 and label.rgb == 0xF0BE79, "the swapping worked as usual meanwhile")
 
 -- the game reuses a button's IDs for a plain sprite component, and a part's sprite ID turns nil
 swapper.start(groups.names(all_on))

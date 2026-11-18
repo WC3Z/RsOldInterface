@@ -51,6 +51,22 @@ function interface_walker.visit_static(interface_id, static_id, callback, visibl
     return true, true
 end
 
+-- Goes up the static IDs from 0 until the given function has said no for enough in a row (see
+-- allowed_missing_ids).
+---@param has_component fun(static_id: integer): boolean Whether the interface has a component with this static ID.
+local function each_static_id(has_component)
+    local static_id = 0
+    local missing_in_a_row = 0
+    while missing_in_a_row < interface_walker.allowed_missing_ids do
+        if has_component(static_id) then
+            missing_in_a_row = 0
+        else
+            missing_in_a_row = missing_in_a_row + 1
+        end
+        static_id = static_id + 1
+    end
+end
+
 -- Both the static components and the ones the game creates while running, like list rows. With
 -- visible_only, hidden components are skipped along with everything inside them.
 ---@param interface_id integer
@@ -63,17 +79,10 @@ function interface_walker.each_component(interface_id, callback, visible_only)
         looked_up = looked_up + 1
         callback(component)
     end
-    local static_id = 0
-    local missing_in_a_row = 0
-    while missing_in_a_row < interface_walker.allowed_missing_ids do
+    each_static_id(function (static_id)
         looked_up = looked_up + 1
-        if interface_walker.visit_static(interface_id, static_id, count_and_visit, visible_only) then
-            missing_in_a_row = 0
-        else
-            missing_in_a_row = missing_in_a_row + 1
-        end
-        static_id = static_id + 1
-    end
+        return (interface_walker.visit_static(interface_id, static_id, count_and_visit, visible_only))
+    end)
     return looked_up
 end
 
@@ -100,22 +109,18 @@ end
 function interface_walker.static_tree(interface_id)
     local static_ids = {}
     local parents = {}
-    local static_id = 0
-    local missing_in_a_row = 0
-    while missing_in_a_row < interface_walker.allowed_missing_ids do
+    each_static_id(function (static_id)
         local component = ui.Interfaces:GetComponent(interface_id, static_id)
-        if component then
-            missing_in_a_row = 0
-            static_ids[#static_ids + 1] = static_id
-            local found, parent_id = pcall(parent_static_id, component, interface_id)
-            if found and parent_id ~= nil and parent_id ~= static_id then
-                parents[static_id] = parent_id
-            end
-        else
-            missing_in_a_row = missing_in_a_row + 1
+        if not component then
+            return false
         end
-        static_id = static_id + 1
-    end
+        static_ids[#static_ids + 1] = static_id
+        local found, parent_id = pcall(parent_static_id, component, interface_id)
+        if found and parent_id ~= nil and parent_id ~= static_id then
+            parents[static_id] = parent_id
+        end
+        return true
+    end)
 
     local is_static = {}
     for _, id in ipairs(static_ids) do

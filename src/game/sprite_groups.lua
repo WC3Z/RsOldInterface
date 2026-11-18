@@ -1,11 +1,11 @@
--- The sprites the plugin can swap, in groups that can be turned on and off separately (like from
--- a settings page later). A sprite belongs to the first group with a matching name pattern.
+-- The sprites the plugin can swap, in groups that can be turned on and off separately (see
+-- sprite_groups.options). A sprite belongs to the first group with a matching name pattern.
 local sprite_groups = {}
 
 ---@class SpriteGroup
 ---@field name string
 ---@field patterns string[]
----@field window_contents boolean Whether the game changes these all the time (hover and selected states, rebuilt lists).
+---@field changes_often boolean Whether the game changes these all the time (hover and selected states, rebuilt lists).
 ---@field checked_while_hidden boolean? Whether to check these after every update even while hidden (see below).
 
 -- Groups checked while hidden are the frames of windows that open inside the always-showing main
@@ -23,32 +23,32 @@ sprite_groups.all = {
             "^BANK_TABS_%d$",
             "^BANK_TABS_HORIZONTAL_%d$",
         },
-        window_contents = true,
+        changes_often = true,
     },
     {
         name = "docked_windows",
         patterns = { "^RS3_CHILD_", "^RS3_HUD_WINDOW_", "^RS3_GHOST_COMPACT_" },
-        window_contents = false,
+        changes_often = false,
     },
     {
         -- Tiles the game repeats to fill a window, or the middle of a frame built from 3x3 pieces
         -- (piece 4), which the game stretches to fill the frame, so they fit whatever their size.
         name = "backgrounds",
         patterns = { "^RS3_[A-Z_]*CONTENT_TILE$", "^RS3_CONTENT_FRAME_4$", "^RS3_PARENT_CONTENT_TAB_FRAME_4$" },
-        window_contents = false,
+        changes_often = false,
     },
     {
         -- Big windows like Settings, and plugin windows: the frame and the title banner.
         name = "big_windows",
         patterns = { "^RS3_PARENT_FRAME_", "^RS3_PARENT_BANNER_" },
-        window_contents = false,
+        changes_often = false,
         checked_while_hidden = true,
     },
     {
         -- Modal windows like the Bank and plugins' settings windows: the frame and title bar.
         name = "modal_windows",
         patterns = { "^RS3_MAIN_MODAL_", "^RS3_MODAL_WINDOW_1_" },
-        window_contents = false,
+        changes_often = false,
         checked_while_hidden = true,
     },
     {
@@ -56,22 +56,22 @@ sprite_groups.all = {
         -- side panels, and round the boxes in plugins' windows.
         name = "content_frames",
         patterns = { "^RS3_PARENT_CONTENT_TAB_FRAME_%d$", "^RS3_CONTENT_FRAME_%d$" },
-        window_contents = false,
+        changes_often = false,
     },
     {
         name = "dropdowns",
         patterns = { "^RS3_BTN_DROPDOWN_" },
-        window_contents = true,
+        changes_often = true,
     },
     {
         name = "buttons",
         patterns = { "^RS3_BTN_", "^RS3_BUTTON_CLOSE_", "^RS3_BUTTON_LOGOUT_", "^BUTTON_30PX_[A-Z]+$" },
-        window_contents = true,
+        changes_often = true,
     },
     {
         name = "rows",
         patterns = { "^RS3_CONTENT_CONTAINER_", "^RS3_CONTEXTUAL_INPUT_BOX_" },
-        window_contents = true,
+        changes_often = true,
     },
     {
         -- The controls newer windows (like Settings' Gameplay tab) are built from, styled by the
@@ -85,35 +85,28 @@ sprite_groups.all = {
             "^INPUT_DEFAULT$",
             "^DROPDOWN_DEFAULT_[A-Z_]+$",
         },
-        window_contents = true,
+        changes_often = true,
     },
     {
         -- Not sprites: plain coloured rectangles, like the cards in Settings' lists, get the old
         -- colour from skin_palette.
         name = "colours",
         patterns = {},
-        window_contents = true,
+        changes_often = true,
     },
     {
         -- Not sprites: text (labels, and buttons', checkboxes' and input boxes' text) gets the old
         -- colour from skin_palette too, like headings and descriptions.
         name = "text_colours",
         patterns = {},
-        window_contents = true,
+        changes_often = true,
     },
     {
         name = "sliders_and_scrollbars",
         patterns = { "^RS3_SLIDER_", "^SCROLLBAR_" },
-        window_contents = true,
+        changes_often = true,
     },
 }
-
--- Sprites with no image of the plugin's, and a built-in sprite to draw instead. None at the
--- moment: a built-in sprite can't be tinted to a colour scheme, so the sprites added since the old
--- cache get images made from their mobile versions, which still have the old look (see
--- tools/frames/install.cjs).
----@type table<string, string>
-sprite_groups.stand_ins = {}
 
 -- What players can turn on and off in the settings, each a few groups. Every group is in one.
 ---@class SpriteGroupOption
@@ -253,10 +246,10 @@ end
 
 ---@param group_name string
 ---@return boolean
-function sprite_groups.is_window_contents(group_name)
+function sprite_groups.changes_often(group_name)
     for _, group in ipairs(sprite_groups.all) do
         if group.name == group_name then
-            return group.window_contents
+            return group.changes_often
         end
     end
     return false

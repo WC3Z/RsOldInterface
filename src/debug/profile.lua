@@ -3,11 +3,9 @@
 -- - every 200 updates, how much of each kind of work there was (the game's Lua has no clock to
 --   time it with);
 -- - once, what each kind of game call costs (the benchmark: the game stutters for a few seconds);
--- - each interface that loads or shows, and how long before that the last server packet, click
---   and key press were (would those be a sign to look for new interfaces right away?);
+-- - each interface that loads or shows;
 -- - parts only found by the slow regular walk while showing: those were drawn in the new look for
---   a while;
--- - which of a hovered part's parents also count as under the mouse.
+--   a while.
 local interface_walker = require("src/game/interface_walker")
 
 local profile = {}
@@ -15,14 +13,11 @@ local profile = {}
 profile.enabled = false
 profile.benchmark_iterations = 100000
 profile.benchmark_at_update = 300
--- Both off: one of them crashed the client when the plugin was turned on (2026-11-17). To be tried
--- one at a time.
-profile.listens_to_events = false
-profile.traces_hover = false
-
 local prefix = "[Old Interface] "
-local subscription_name = "old-interface-profile"
 local report_interval = 200
+-- The component of the main interface that plugins' windows are created in: what's inside it is
+-- listed once a window shows there (see profile.dump_container).
+local plugin_windows_static_id = 61
 local clock = type(os) == "table" and os.clock or nil
 
 ---@type table<string, number>
@@ -38,13 +33,9 @@ local benchmark_summary = {}
 local reports = 0
 local current_update = 0
 
----@type table<string, integer>
-local last_event_update = {}
-local listened_events = { ServerLogic = "packet", MiniMenuEntrySelected = "click", KeyDown = "key" }
-
 ---@type table<integer, integer>
 local opened_at = {}
-local lines_left = { opened = 80, late = 30, hover = 15 }
+local lines_left = { opened = 80, late = 30 }
 
 ---@param interface_id integer
 local function interface_name(interface_id)
@@ -100,12 +91,6 @@ local function report()
     end
 end
 
----@param name string
-local function updates_since(name)
-    local last = last_event_update[name]
-    return last and tostring(current_update - last) or "never"
-end
-
 -- An interface was found to have loaded or shown.
 ---@param interface_id integer
 ---@param reason string
@@ -115,10 +100,8 @@ function profile.opened(interface_id, reason, found_by)
         return
     end
     opened_at[interface_id] = current_update
-    local events = profile.listens_to_events and string.format("; updates since last packet %s, click %s, key %s",
-        updates_since("packet"), updates_since("click"), updates_since("key")) or ""
-    print_limited("opened", string.format("opened: %s %s at update %d (%s)%s",
-        interface_name(interface_id), reason, current_update, found_by, events))
+    print_limited("opened", string.format("opened: %s %s at update %d (%s)",
+        interface_name(interface_id), reason, current_update, found_by))
 end
 
 -- A showing part was only found by the regular walk.
@@ -193,33 +176,6 @@ function profile.dump_container(interface_id, static_id)
     for _, line in ipairs(lines) do
         print(line)
     end
-end
-
-local last_hovered = nil
-
--- A swapped part is under the mouse: which of its parents are too?
----@param key string
----@param component ui.Component
-function profile.hovered(key, component)
-    if not profile.traces_hover then
-        return
-    end
-    profile.count("parts under the mouse", 1)
-    if key == last_hovered then
-        return
-    end
-    last_hovered = key
-    local chain = {}
-    local current = component
-    for _ = 1, 16 do
-        local found, parent = pcall(function () return current.parent end)
-        if not found or parent == nil then
-            break
-        end
-        current = parent
-        chain[#chain + 1] = string.format("%d:%d%s", current.interfaceID, current.staticID, current.isMouseOver and "*" or "")
-    end
-    print_limited("hover", string.format("hover: %s, parents (* = also under the mouse): %s", key, table.concat(chain, " < ")))
 end
 
 ---@class BenchmarkSubjects
@@ -387,11 +343,10 @@ function profile.frame(event, update_number, subjects)
         continue_benchmark(delta, subjects)
         return
     end
-    -- The component plugins' windows are created in: listed once a window shows in it.
     if update_number % 50 == 0 then
         local found, main_interface_id = pcall(function () return id.Interface.TOPLEVEL_V2 end)
         if found and main_interface_id then
-            profile.dump_container(main_interface_id, 61)
+            profile.dump_container(main_interface_id, plugin_windows_static_id)
         end
     end
     frames = frames + 1
@@ -403,31 +358,11 @@ end
 
 function profile.enable()
     profile.enabled = true
-    for event_name, name in pairs(profile.listens_to_events and listened_events or {}) do
-        local event = Event[event_name]
-        if event then
-            pcall(event.Subscribe, subscription_name, function ()
-                last_event_update[name] = current_update
-                profile.count(name .. "s", 1)
-            end)
-        end
-    end
     print(string.format("%sprofile: on, clock %s", prefix, clock and "available" or "not available"))
 end
 
 function profile.disable()
-    if not profile.enabled then
-        return
-    end
     profile.enabled = false
-    -- Only what was subscribed to: unsubscribing from an event that wasn't may be what crashed
-    -- the client when the plugin was turned off.
-    for event_name in pairs(profile.listens_to_events and listened_events or {}) do
-        local event = Event[event_name]
-        if event then
-            pcall(event.Unsubscribe, subscription_name)
-        end
-    end
 end
 
 return profile
