@@ -28,6 +28,8 @@ Open the plugin's settings with the gear on its row in the Plugin Hub's Manage t
 
 Below those is the **colour scheme**. Classic blue draws the old interface as it was. The others (Crimson, Emerald, Amethyst, Bronze, Teal, Steel, or Custom with a colour of your own from the colour picker) draw it in one colour: the plugin draws grey copies of the old images (`resources/frames_tintable`, made by `tools/frames/make_tintable.cjs`) and has the game tint them, so the gold and red details take the scheme's colour too. Panels and blue-grey text follow the scheme; gold headings stay gold (see [`src/game/colour_scheme.lua`](src/game/colour_scheme.lua)).
 
+Under **Text colours** you can pick your own colour for headings (gold in the old look) and for other text (blue-grey), in any colour scheme; a button goes back to the scheme's own. They only apply while the Text colours option is on.
+
 Each option covers a few groups of the game's images (see [`src/game/sprite_groups.lua`](src/game/sprite_groups.lua)). The plugin depends on the [prettyui](https://prettyui.j3.gg/) plugin for its settings page (see `plugin.json`).
 
 ## What it leaves alone, and why

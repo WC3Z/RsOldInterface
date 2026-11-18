@@ -28,6 +28,16 @@ colour_scheme.all = {
     { key = colour_scheme.custom_key, label = "Custom" },
 }
 
+-- What a look is drawn in: a scheme's tint, and the player's own text colours if they chose any.
+---@class SchemeColours
+---@field tint integer? 0xRRGGBB, or nil for the classic scheme.
+---@field heading_text integer? Replaces the gold of headings.
+---@field body_text integer? Replaces the blue-grey of other text.
+
+-- The old look's text colours, which the player's own replace.
+colour_scheme.default_heading_text = 0xFCC907
+colour_scheme.default_body_text = 0xA6C7D6
+
 -- How much of the scheme's colour light text takes on (the rest stays white).
 local text_tint_strength = 0.4
 
@@ -80,14 +90,21 @@ function colour_scheme.tinted(rgb, tint)
     return colour_scheme.multiplied(colour(brightness, brightness, brightness), tint)
 end
 
+-- Whether a text colour of the old look is a heading's gold; the others are blue-greys.
+---@param rgb integer
+---@return boolean
+function colour_scheme.is_heading_text(rgb)
+    local red, _, blue = channels(rgb)
+    return blue <= red
+end
+
 -- A text colour of the old look in the scheme's colour. Only the blue-grey ones change, and stay
 -- light: gold headings look right on any colour.
 ---@param rgb integer
 ---@param tint integer
 ---@return integer
 function colour_scheme.tinted_text(rgb, tint)
-    local red, _, blue = channels(rgb)
-    if blue <= red then
+    if colour_scheme.is_heading_text(rgb) then
         return rgb
     end
     local brightness = math.max(channels(rgb))
@@ -96,6 +113,18 @@ function colour_scheme.tinted_text(rgb, tint)
         return brightness * (255 + (tint_channel - 255) * text_tint_strength) / 255
     end
     return colour(mixed(tint_red), mixed(tint_green), mixed(tint_blue))
+end
+
+-- The colour for a text that has the given colour in the old look.
+---@param rgb integer
+---@param colours SchemeColours
+---@return integer
+function colour_scheme.text_colour(rgb, colours)
+    local own_colour = colour_scheme.is_heading_text(rgb) and colours.heading_text or colours.body_text
+    if own_colour then
+        return own_colour
+    end
+    return colours.tint and colour_scheme.tinted_text(rgb, colours.tint) or rgb
 end
 
 return colour_scheme

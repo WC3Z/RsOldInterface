@@ -54,6 +54,9 @@ local swapped_groups = {}
 -- The colour scheme's tint (0xRRGGBB), or nil in the classic scheme, where nothing is tinted.
 ---@type integer?
 local tint = nil
+-- Everything the look is drawn in, the tint among it.
+---@type SchemeColours
+local scheme_colours = {}
 
 ---@type InterfaceWatch?
 local watch = nil
@@ -552,7 +555,7 @@ local function old_colour_for(rgb, is_text)
     if old_rgb == nil then
         if is_text then
             old_rgb = skin_palette.old_text_colour(rgb)
-            old_rgb = old_rgb and tint and colour_scheme.tinted_text(old_rgb, tint) or old_rgb
+            old_rgb = old_rgb and colour_scheme.text_colour(old_rgb, scheme_colours)
         else
             old_rgb = skin_palette.old_colour(rgb)
             old_rgb = old_rgb and tint and colour_scheme.tinted(old_rgb, tint) or old_rgb
@@ -929,12 +932,14 @@ end
 
 -- Swaps the sprites in the given groups (names from sprite_groups).
 ---@param groups table<string, boolean>
----@param scheme_tint integer? The colour scheme's tint (see colour_scheme), or nil for the classic look.
-function sprite_swapper.start(groups, scheme_tint)
+---@param colours SchemeColours? What to draw the look in (see colour_scheme); the classic look if left out.
+function sprite_swapper.start(groups, colours)
     sprite_swapper.stop()
     swapped_groups = groups
+    colours = colours or {}
     -- Without the grey copies (resources not loaded yet) the classic look is all there is.
-    tint = tintable_frames() and scheme_tint or nil
+    tint = tintable_frames() and colours.tint or nil
+    scheme_colours = { tint = tint, heading_text = colours.heading_text, body_text = colours.body_text }
     image_cache = {}
     changes_often_cache = {}
     checked_while_hidden_cache = {}

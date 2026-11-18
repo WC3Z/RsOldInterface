@@ -397,7 +397,7 @@ local tinted_button = { interfaceID = 18, staticID = 3, categoryID = -1, dynamic
 tinted_button.sprite.rgba = 0xFFFFFF80
 local tinted_card = { interfaceID = 18, staticID = 4, categoryID = -1, dynamicID = -1, type = ui.ComponentType.RECTANGLE, visibleGlobal = true, rgb = 0x24211E }
 load(18, { [0] = tinted, [1] = dimmed, [2] = without_grey_copy, [3] = tinted_button, [4] = tinted_card })
-fresh_swapper.start(groups.names(all_on), 0xFF0000)
+fresh_swapper.start(groups.names(all_on), { tint = 0xFF0000 })
 tick(5)
 assert(tinted.image == "grey_btn0" and tinted.rgb == 0xFF0000, "a grey copy is drawn, tinted")
 assert(dimmed.rgb == 0x800000, "the game's own tint stays under the scheme's")
@@ -420,11 +420,23 @@ assert(dimmed.rgb == 0x808080 and tinted_button.sprite.rgba == 0xFFFFFF80 and ti
 
 -- without the grey copies (resources not loaded yet), a scheme falls back to the classic look
 Plugin.resources.frames_tintable = nil
-fresh_swapper.start(groups.names(all_on), 0xFF0000)
+fresh_swapper.start(groups.names(all_on), { tint = 0xFF0000 })
 tick(5)
 assert(tinted.image == "img_btn1" and tinted.rgb == 0x404040, "classic images, untinted")
 assert(tinted_card.rgb == 0x152648, "and classic colours")
 fresh_swapper.stop()
+
+-- the player's own text colours replace the old look's, in any scheme
+local heading = { interfaceID = 19, staticID = 0, categoryID = -1, dynamicID = -1, type = ui.ComponentType.LABEL, visibleGlobal = true, rgb = 0xF0BE79, content = "Heading" }
+local body = { interfaceID = 19, staticID = 1, categoryID = -1, dynamicID = -1, type = ui.ComponentType.LABEL, visibleGlobal = true, rgb = 0xE3D7CF, content = "Body" }
+load(19, { [0] = heading, [1] = body })
+fresh_swapper.start(groups.names(all_on), { heading_text = 0x112233, body_text = 0x445566 })
+tick(5)
+assert(heading.rgb == 0x112233, "a heading gets the player's heading colour")
+assert(body.rgb == 0x445566, "other text gets the player's body colour")
+assert(tinted_card.rgb == 0x152648, "panels keep the classic colour")
+fresh_swapper.stop()
+assert(heading.rgb == 0xF0BE79 and body.rgb == 0xE3D7CF, "stopping gives back the game's text colours")
 
 -- nothing above made the plugin print an error (but for the one asked for)
 assert(#errors == 1, "unexpected error: " .. tostring(errors[2]))
