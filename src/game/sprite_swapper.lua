@@ -384,9 +384,10 @@ end
 -- Swaps the sprites in the given groups (names from sprite_groups).
 ---@param groups table<string, boolean>
 ---@param colours SchemeColours? What to draw the look in (see colour_scheme); the classic look if left out.
-function sprite_swapper.start(groups, colours)
+---@param textured_panels boolean? Whether the panels inside windows show the window's texture, as before 2019 (see sprite_images).
+function sprite_swapper.start(groups, colours, textured_panels)
     sprite_swapper.stop()
-    local drawn_colours = sprite_images.use(groups, colours or {})
+    local drawn_colours = sprite_images.use(groups, colours or {}, textured_panels)
     local watch = interface_watcher.start(subscription_name, visit)
     recolourer.start(groups, drawn_colours, function (component, walk_kind)
         interface_watcher.found_new_part(watch, component.interfaceID, component.staticID,

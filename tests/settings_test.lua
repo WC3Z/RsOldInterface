@@ -31,7 +31,11 @@ local function fake_page(record)
     local page = {
         AddTitle = function () end,
         AddText = function () end,
-        AddCheckboxButton = function (_, items, options) record.checkboxes = { items = items, options = options } end,
+        AddCheckboxButton = function (_, items, options)
+            -- The parts' checkboxes come first, then the one for textured panels.
+            local name = record.checkboxes == nil and "checkboxes" or "panel_checkbox"
+            record[name] = { items = items, options = options }
+        end,
         AddComboBox = function (_, options)
             record.dropdown = options
             return {}
@@ -105,6 +109,12 @@ assert(stored.option_text_colours == false, "turning text colours off is saved")
 assert(not settings.is_on("text_colours"), "and read back")
 assert(changes == 1, "the swapping starts again")
 
+-- Panels are the plain blue of 2019 unless the player wants the texture from before.
+assert(not settings.has_textured_panels() and not built.panel_checkbox.items[1].selected, "plain panels when nothing is saved")
+built.panel_checkbox.options.onChange(nil, {}, "textured_panels", true)
+assert(settings.has_textured_panels() and changes == 2, "turning textured panels on is saved, and the swapping starts again")
+built.panel_checkbox.options.onChange(nil, {}, "textured_panels", false)
+
 -- Opening the window again builds it again, from the saved states.
 open()
 for _, item in ipairs(built.checkboxes.items) do
@@ -131,7 +141,7 @@ local crimson = colour_scheme.all[crimson_index].tint
 local builds_before = builds
 built.dropdown.onChange(nil, crimson_index)
 assert(settings.colour_scheme() == "crimson" and settings.tint() == crimson, "choosing a scheme is saved")
-assert(changes == 2, "and the swapping starts again")
+assert(changes == 4, "and the swapping starts again")
 assert(builds == builds_before, "the window isn't built again while the dropdown is still telling of the change")
 built.tabs_options.onChange(nil, 2)
 update_handler()

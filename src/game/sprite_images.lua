@@ -41,6 +41,12 @@ local side_without_edge_image = "side_without_edge"
 local title_plate_name = "RS3_MODAL_WINDOW_1_TITLE_TILE"
 local title_bar_image = "RS3_MODAL_WINDOW_1_TOP_TILE"
 local title_corner_width = 28
+-- The panels inside windows, like the Bank's item area, were a plain blue from 2019 on, which is
+-- what their images are. Before that there were no panels: the window's own textured background
+-- showed there. The player can have that instead, by drawing the panel's pieces see-through.
+local panel_piece_pattern = "^RS3_PARENT_CONTENT_TAB_FRAME_%d$"
+local see_through_image = "see_through"
+local has_textured_panels = false
 -- The two sprites' IDs, looked up when the swapping starts.
 ---@type integer?, integer?
 local side_tile_id, title_plate_id = nil, nil
@@ -66,8 +72,11 @@ end
 local function look_for(sprite_name, group_name)
     local part_key = sprite_groups.colour_part_of(sprite_name)
     local image, tint, image_set_suffix = nil, nil, ""
+    if has_textured_panels and sprite_name:find(panel_piece_pattern) then
+        image = resource(Plugin.resources, see_through_image)
+    end
     -- The player's own colour for the sprite's part comes before the scheme's own image.
-    if colours.image_set and not colour_scheme.own_part_tint(colours, part_key) then
+    if image == nil and colours.image_set and not colour_scheme.own_part_tint(colours, part_key) then
         image_set_suffix = "_" .. colours.image_set
         image = resource(frames(image_set_suffix), sprite_name)
     end
@@ -144,9 +153,11 @@ end
 -- in, and forgets the looks chosen before.
 ---@param groups table<string, boolean>
 ---@param scheme_colours SchemeColours
+---@param textured_panels boolean? Whether the panels inside windows show the window's texture (see above).
 ---@return SchemeColours # The colours as they can be drawn with the images that are loaded.
-function sprite_images.use(groups, scheme_colours)
+function sprite_images.use(groups, scheme_colours, textured_panels)
     swapped_groups = groups
+    has_textured_panels = textured_panels == true
     looks = {}
     side_tile_id = game_ids.sprite_id(side_tile_name)
     title_plate_id = game_ids.sprite_id(title_plate_name)

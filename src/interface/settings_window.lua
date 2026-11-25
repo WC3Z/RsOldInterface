@@ -148,6 +148,20 @@ local function add_look_options(page)
             on_change()
         end,
     })
+
+    local panel_items = { {
+        text = "Textured panels",
+        value = "textured_panels",
+        selected = settings.has_textured_panels(),
+        tooltip = "The Bank's item area and panels like it show the window's texture, as before 2019. Off: the plain blue they had from 2019 to 2026",
+    } }
+    page:AddCheckboxButton(panel_items, {
+        width = (prettyui.CheckboxButton.getSize(panel_items)),
+        onChange = function (_, _, _, selected)
+            settings.set_textured_panels(selected)
+            on_change()
+        end,
+    })
 end
 
 -- The index of a colour scheme in colour_scheme.all, which is what the dropdown knows it by.

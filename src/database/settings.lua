@@ -10,6 +10,7 @@ local custom_tint_key = "custom_tint"
 local own_text_colours_key = "own_text_colours"
 local heading_text_key = "heading_text"
 local body_text_key = "body_text"
+local textured_panels_key = "textured_panels"
 local window_x_key = "window_x"
 local window_y_key = "window_y"
 local window_width_key = "window_width"
@@ -33,6 +34,18 @@ end
 ---@param on boolean
 function settings.set_on(option_key, on)
     PersistentDB:SetBool(saved_key(option_key), on)
+end
+
+-- Whether the panels inside windows, like the Bank's item area, show the window's texture as they
+-- did before 2019, and not the plain blue from after. Off unless turned on.
+---@return boolean
+function settings.has_textured_panels()
+    return PersistentDB:GetBool(textured_panels_key) == true
+end
+
+---@param on boolean
+function settings.set_textured_panels(on)
+    PersistentDB:SetBool(textured_panels_key, on)
 end
 
 -- A saved text, or nil when nothing is saved under the key.

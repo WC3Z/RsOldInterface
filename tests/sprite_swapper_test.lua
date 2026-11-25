@@ -505,6 +505,25 @@ fresh_swapper.stop()
 assert(part_button.rgb == 0xFFFFFF and part_frame.rgb == 0xFFFFFF and part_card.rgb == 0x24211E, "stopping gives everything back")
 Plugin.resources.frames_tintable = nil
 
+-- textured panels: the pieces of the panels inside windows are drawn see-through, whatever the
+-- scheme, so the window's own texture shows there
+names[105] = "RS3_PARENT_CONTENT_TAB_FRAME_4"
+id.Sprite.RS3_PARENT_CONTENT_TAB_FRAME_4 = 105
+Plugin.resources.frames.RS3_PARENT_CONTENT_TAB_FRAME_4 = "img_panel"
+Plugin.resources.frames_tintable = { RS3_PARENT_CONTENT_TAB_FRAME_4 = "grey_panel" }
+Plugin.resources.see_through = "img_see_through"
+local panel = sprite(22, 0, 105, true); panel.rgb = 0xFFFFFF
+load(22, { [0] = panel })
+fresh_swapper.start(groups.names(all_on))
+tick(5)
+assert(panel.image == "img_panel", "a panel is the plain blue image")
+fresh_swapper.start(groups.names(all_on), { tint = 0xFF0000 }, true)
+tick(5)
+assert(panel.image == "img_see_through" and panel.rgb == 0xFFFFFF, "with textured panels it's see-through and untinted, in a tinted scheme too")
+fresh_swapper.stop()
+assert(panel.spriteID == 105, "and the game's again when stopped")
+Plugin.resources.frames_tintable = nil
+
 -- the player's own text colours replace the old look's, in any scheme
 local heading = { interfaceID = 19, staticID = 0, categoryID = -1, dynamicID = -1, type = ui.ComponentType.LABEL, visibleGlobal = true, rgb = 0xF0BE79, content = "Heading" }
 local body = { interfaceID = 19, staticID = 1, categoryID = -1, dynamicID = -1, type = ui.ComponentType.LABEL, visibleGlobal = true, rgb = 0xE3D7CF, content = "Body" }
