@@ -6,8 +6,12 @@
 -- To switch the tools on while developing, in main.lua:
 --
 --   require("src/game/debug_tools").events.enable({ profile = true, activity_log = true })
+--
+-- With `unstyled = true`, what's showing that the plugin doesn't restyle is listed every few
+-- seconds (see src/debug/unstyled.lua).
 local activity_log = require("src/debug/activity_log")
 local profile = require("src/debug/profile")
+local unstyled = require("src/debug/unstyled")
 local interface_walker = require("src/game/interface_walker")
 local component_fields = require("src/game/component_fields")
 local game_ids = require("src/game/game_ids")
@@ -25,6 +29,9 @@ local watch = nil
 local stats_interval = 200
 local stats = { frames = 0, checks = 0, swapped_parts = 0, recoloured = 0, reswapped = 0, rebuilt = {} }
 local stats_logged_at = 0
+-- Whether what's unstyled is listed, and how many updates apart.
+local lists_unstyled = false
+local unstyled_interval = 150
 -- The update each interface last had a new swap logged in.
 ---@type table<integer, integer>
 local swap_logged_at = {}
@@ -40,9 +47,10 @@ local function is_closely_watched(interface_id)
     return watch ~= nil and watch.closely_watched[interface_id] ~= nil
 end
 
----@param tools { profile: boolean?, activity_log: boolean? }
+---@param tools { profile: boolean?, activity_log: boolean?, unstyled: boolean? }
 function events.enable(tools)
     events.enabled = true
+    lists_unstyled = tools.unstyled == true
     activity_log.enabled = tools.activity_log == true
     if tools.profile then
         profile.enable()
@@ -51,6 +59,7 @@ end
 
 function events.disable()
     events.enabled = false
+    lists_unstyled = false
     activity_log.enabled = false
     profile.disable()
 end
@@ -259,6 +268,9 @@ function events.checked(parts, recoloured_count)
     local part_count = 0
     for _ in pairs(parts) do
         part_count = part_count + 1
+    end
+    if lists_unstyled and update_number() % unstyled_interval == 0 then
+        unstyled.report(parts)
     end
     stats.checks = stats.checks + 1
     stats.swapped_parts = part_count

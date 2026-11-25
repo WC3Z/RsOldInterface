@@ -71,6 +71,7 @@ end
 ---@return SpriteLook?
 local function look_for(sprite_name, group_name)
     local part_key = sprite_groups.colour_part_of(sprite_name)
+    local image_name = sprite_groups.image_names[sprite_name] or sprite_name
     local image, tint, image_set_suffix = nil, nil, ""
     if has_textured_panels and sprite_name:find(panel_piece_pattern) then
         image = resource(Plugin.resources, see_through_image)
@@ -78,17 +79,17 @@ local function look_for(sprite_name, group_name)
     -- The player's own colour for the sprite's part comes before the scheme's own image.
     if image == nil and colours.image_set and not colour_scheme.own_part_tint(colours, part_key) then
         image_set_suffix = "_" .. colours.image_set
-        image = resource(frames(image_set_suffix), sprite_name)
+        image = resource(frames(image_set_suffix), image_name)
     end
-    if image == nil then
+    if image == nil and not sprite_groups.keeps_own_colours(sprite_name) then
         tint = colour_scheme.sprite_tint(colours, sprite_name, part_key)
         image_set_suffix = "_tintable"
-        image = tint and resource(frames(image_set_suffix), sprite_name)
+        image = tint and resource(frames(image_set_suffix), image_name)
     end
     if not image then
         tint = nil
         image_set_suffix = ""
-        image = resource(frames(image_set_suffix), sprite_name)
+        image = resource(frames(image_set_suffix), image_name)
     end
     if not image then
         return nil

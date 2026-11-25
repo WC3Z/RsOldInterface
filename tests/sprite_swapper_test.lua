@@ -517,11 +517,79 @@ load(22, { [0] = panel })
 fresh_swapper.start(groups.names(all_on))
 tick(5)
 assert(panel.image == "img_panel", "a panel is the plain blue image")
+-- a sprite without an image of its own is drawn with another's
+names[106] = "OLD_BACKGROUND_TEXTURE"
+id.Sprite.OLD_BACKGROUND_TEXTURE = 106
+local plugin_texture = sprite(22, 1, 106, true); plugin_texture.rgb = 0xFFFFFF
+loaded[22][1] = plugin_texture
+load(22, loaded[22])
+fresh_swapper.start(groups.names(all_on))
+tick(5)
+assert(plugin_texture.image == "img_panel", "another plugin's panel texture is drawn as a plain panel")
 fresh_swapper.start(groups.names(all_on), { tint = 0xFF0000 }, true)
 tick(5)
+assert(plugin_texture.image == "grey_panel" and plugin_texture.rgb == 0xFF0000, "tinted with the scheme, and not see-through with textured panels")
 assert(panel.image == "img_see_through" and panel.rgb == 0xFFFFFF, "with textured panels it's see-through and untinted, in a tinted scheme too")
 fresh_swapper.stop()
 assert(panel.spriteID == 105, "and the game's again when stopped")
+Plugin.resources.frames_tintable = nil
+
+-- another plugin's window: rectangles the game created in the main interface, in the current
+-- look's browns, get the old panel blue; gold lines and the game's own static rectangles don't
+id.Interface.TOPLEVEL_V2 = 1477
+id.Interface.BANK = 517
+for _, name in ipairs({ "src/game/recolourer", "src/game/sprite_swapper" }) do package.loaded[name] = nil end
+local plugin_swapper = require("src/game/sprite_swapper")
+local function rectangle(iface, static, dynamic, rgb)
+  return { interfaceID = iface, staticID = static, categoryID = dynamic and 0 or -1, dynamicID = dynamic or -1, type = ui.ComponentType.RECTANGLE, visibleGlobal = true, rgb = rgb }
+end
+local plugin_layer = { interfaceID = 1477, staticID = 0, categoryID = -1, dynamicID = -1, type = ui.ComponentType.LAYER, visibleGlobal = true, children = {} }
+function plugin_layer:IterateDynamicComponents(callback) for _, child in ipairs(self.children) do callback(child) end end
+local plugin_panel, plugin_row, plugin_gold_line = rectangle(1477, 0, 1, 0x332E29), rectangle(1477, 0, 2, 0x49371F), rectangle(1477, 0, 3, 0x806432)
+plugin_layer.children = { plugin_panel, plugin_row, plugin_gold_line }
+local game_brown = rectangle(1477, 1, nil, 0x332E29)
+local other_window_brown = rectangle(23, 0, 1, 0x332E29)
+local other_layer = { interfaceID = 23, staticID = 0, categoryID = -1, dynamicID = -1, type = ui.ComponentType.LAYER, visibleGlobal = true, children = { other_window_brown } }
+function other_layer:IterateDynamicComponents(callback) for _, child in ipairs(self.children) do callback(child) end end
+local bank_page_brown = rectangle(517, 0, 1, 0x332E29)
+local bank_layer = { interfaceID = 517, staticID = 0, categoryID = -1, dynamicID = -1, type = ui.ComponentType.LAYER, visibleGlobal = true, children = { bank_page_brown } }
+function bank_layer:IterateDynamicComponents(callback) for _, child in ipairs(self.children) do callback(child) end end
+load(517, { [0] = bank_layer })
+load(1477, { [0] = plugin_layer, [1] = game_brown })
+load(23, { [0] = other_layer })
+plugin_swapper.start(groups.names(all_on))
+tick(5)
+assert(plugin_panel.rgb == 0x1E3146, "another plugin's brown panel gets the old panel blue")
+assert(plugin_row.rgb == 0x2B4664, "a lighter brown gets a lighter blue: " .. string.format("%06X", plugin_row.rgb))
+assert(plugin_gold_line.rgb == 0x806432, "gold lines stay gold")
+assert(bank_page_brown.rgb == 0x1E3146, "a page another plugin added to the Bank gets it too")
+assert(game_brown.rgb == 0x332E29, "the game's own rectangle in that colour is left alone")
+assert(other_window_brown.rgb == 0x332E29, "and so is one in a window of the game's")
+Plugin.resources.frames_tintable = {}
+plugin_swapper.start(groups.names(all_on), { tint = 0xFF0000 })
+tick(5)
+assert(plugin_panel.rgb == 0x460000, "in a tinted scheme it's the scheme's colour")
+plugin_swapper.stop()
+Plugin.resources.frames_tintable = nil
+assert(plugin_panel.rgb == 0x332E29 and plugin_row.rgb == 0x49371F, "stopping gives back the plugin's own colours")
+id.Interface.TOPLEVEL_V2 = nil
+id.Interface.BANK = nil
+loaded[517] = nil
+for _, name in ipairs({ "src/game/recolourer", "src/game/sprite_swapper" }) do package.loaded[name] = nil end
+fresh_swapper = require("src/game/sprite_swapper")
+
+-- a window's close button keeps its own colours in every scheme, and whatever the player's own
+-- colour for buttons
+names[107] = "RS3_BTN_MODAL_WINDOW_1_CLOSE_NML"
+id.Sprite.RS3_BTN_MODAL_WINDOW_1_CLOSE_NML = 107
+Plugin.resources.frames.RS3_BTN_MODAL_WINDOW_1_CLOSE_NML = "img_close"
+Plugin.resources.frames_tintable = { RS3_BTN_MODAL_WINDOW_1_CLOSE_NML = "grey_close" }
+local close_button = sprite(24, 0, 107, true); close_button.rgb = 0xFFFFFF
+load(24, { [0] = close_button })
+fresh_swapper.start(groups.names(all_on), { tint = 0xFF0000, own_part_tints = { small_buttons = 0x00FF00 } })
+tick(5)
+assert(close_button.image == "img_close" and close_button.rgb == 0xFFFFFF, "the close button is drawn in its own colours")
+fresh_swapper.stop()
 Plugin.resources.frames_tintable = nil
 
 -- the player's own text colours replace the old look's, in any scheme

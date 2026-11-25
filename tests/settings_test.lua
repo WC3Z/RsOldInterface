@@ -269,6 +269,7 @@ for sprite_name, part_key in pairs({
     CHECKBOX_DEFAULT = "checkboxes",
     SCROLLBAR_V2_0 = "scrollbars",
     SCROLLBAR_DRAGGER_V2_1 = "scrollbars",
+    RS3_CHILD_SCROLL_BAR_VERTICAL_DRAGGER_TILE = "scrollbars",
     RS3_SLIDER_BAR_TILE = "sliders",
     RS3_BTN_ADJUST_SLIDER_2 = "sliders",
     RS3_CONTENT_CONTAINER_12 = "rows",
@@ -277,6 +278,13 @@ for sprite_name, part_key in pairs({
 }) do
     assert(sprite_groups.colour_part_of(sprite_name) == part_key, sprite_name .. " belongs to " .. part_key .. ", not " .. sprite_groups.colour_part_of(sprite_name))
 end
+assert(sprite_groups.group_of("BUTTON_PANEL_DEFAULT") == "styled_controls" and sprite_groups.group_of("BUTTON_PANEL_SHINE") == nil,
+    "the panel buttons are swapped, other sprites with a name like theirs aren't")
+for sprite_name, image_name in pairs(sprite_groups.image_names) do
+    assert(sprite_groups.group_of(sprite_name), sprite_name .. ", drawn with " .. image_name .. "'s image, is in a group")
+end
+assert(sprite_groups.group_of("RS3_CHILD_SCROLL_BAR_VERT_BTN") == "sliders_and_scrollbars", "docked windows' scrollbars are scrollbars, not window frames")
+assert(sprite_groups.group_of("RS3_CHILD_FRAME_SIDE") == "docked_windows" and sprite_groups.group_of("RS3_CHILD_TAB_SELECTED") == "tabs", "and the groups before them are as they were")
 local part_labels = {}
 for _, part in ipairs(sprite_groups.colour_parts) do
     assert(part_labels[part.label] == nil, part.label .. " is the name of one part only")

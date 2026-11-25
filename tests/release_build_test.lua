@@ -1,6 +1,6 @@
 -- Release builds leave out the debug tools (src/debug): the swapping works without them.
 package.path = "./?.lua;" .. package.path
-for _, name in ipairs({ "src/debug/events", "src/debug/activity_log", "src/debug/profile" }) do
+for _, name in ipairs({ "src/debug/events", "src/debug/activity_log", "src/debug/profile", "src/debug/unstyled" }) do
     package.preload[name] = function () error(name .. " isn't in release builds") end
 end
 

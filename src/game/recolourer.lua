@@ -54,6 +54,9 @@ local recoloured = {}
 -- texts' separately.
 ---@type table<integer, integer|false>, table<integer, integer|false>
 local rectangle_colours, text_colours = {}, {}
+-- The same for the browns other plugins draw their panels in (see plugin_panel_colour).
+---@type table<integer, integer|false>
+local plugin_panel_colours = {}
 
 -- The colour the look gives a rectangle or text with the given game colour, or nil if it leaves
 -- it alone.
@@ -75,6 +78,42 @@ local function look_colour(game_rgb, is_text)
         cache[game_rgb] = look_rgb or false
     end
     return look_rgb or nil
+end
+
+-- Other plugins make their windows in the main interface, and some add pages to the Bank. So
+-- rectangles created while running in those two, in the current look's browns, get the old panel
+-- colour (see skin_palette.old_panel_colour).
+local interface_ids_with_plugin_panels = game_ids.interface_ids({ "TOPLEVEL_V2", "BANK" })
+
+---@param component ui.Component
+---@param game_rgb integer
+---@return integer?
+local function plugin_panel_colour(component, game_rgb)
+    local look_rgb = plugin_panel_colours[game_rgb]
+    if look_rgb == nil then
+        local old_rgb = skin_palette.old_panel_colour(game_rgb)
+        local tint = colour_scheme.part_tint(colours, sprite_groups.panels_part)
+        look_rgb = old_rgb and tint and colour_scheme.tinted(old_rgb, tint) or old_rgb or false
+        plugin_panel_colours[game_rgb] = look_rgb
+    end
+    -- Most colours aren't such a brown, and are told by the colour alone.
+    if look_rgb and interface_ids_with_plugin_panels[component.interfaceID] and component_fields.is_created(component) then
+        return look_rgb
+    end
+    return nil
+end
+
+-- The colour the look gives one of a component's colours, or nil if it leaves it alone.
+---@param component ui.Component
+---@param game_rgb integer
+---@param is_text boolean
+---@return integer?
+local function look_colour_of(component, game_rgb, is_text)
+    local look_rgb = look_colour(game_rgb, is_text)
+    if look_rgb == nil and not is_text then
+        look_rgb = plugin_panel_colour(component, game_rgb)
+    end
+    return look_rgb
 end
 
 ---@param component ui.Component
@@ -105,7 +144,7 @@ function recolourer.recolour(component, walk_kind)
     end
     local field = coloured.field
     local game_rgb = read_colour(component, field)
-    local look_rgb = game_rgb and look_colour(game_rgb, coloured.is_text)
+    local look_rgb = game_rgb and look_colour_of(component, game_rgb, coloured.is_text)
     -- Most colours have none: those are told by the colour alone, without working out the
     -- component's key (which reads four IDs).
     if look_rgb == nil or interface_ids_left_alone[component.interfaceID] then
@@ -170,7 +209,7 @@ function recolourer.recolour_changed(update_number)
                 checked = checked + 1
                 colour.visible = component.visibleGlobal
                 local game_rgb = read_colour(component, colour.field)
-                local look_rgb = game_rgb and game_rgb ~= colour.applied_rgb and look_colour(game_rgb, colour.is_text)
+                local look_rgb = game_rgb and game_rgb ~= colour.applied_rgb and look_colour_of(component, game_rgb, colour.is_text)
                 if look_rgb and write_colour(component, colour.field, look_rgb) then
                     colour.game_rgb = game_rgb
                     colour.applied_rgb = look_rgb
@@ -201,6 +240,7 @@ function recolourer.start(groups, scheme_colours, on_new_colour)
     on_new = on_new_colour
     recoloured = {}
     rectangle_colours, text_colours = {}, {}
+    plugin_panel_colours = {}
 end
 
 -- Gives back the game's colours, where they still are what the plugin set.

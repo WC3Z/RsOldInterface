@@ -55,6 +55,15 @@ local other_text_colours = {
     [0xF2C66D] = 0xFCC907, -- sub-headings
     [0xE7D7B0] = 0xA6C7D6, -- labels
     [0xF2E2BC] = 0xC4DDE9, -- tabs and options
+    -- Other plugins' own text colours, in the current look's beige and gold.
+    [0xA99F8A] = 0xA6C7D6,
+    [0xAFA58F] = 0xA6C7D6,
+    [0xB7AA8E] = 0xA6C7D6,
+    [0xC9BEA4] = 0xA6C7D6,
+    [0xD7C9AD] = 0xA6C7D6,
+    [0xD8CCAE] = 0xA6C7D6,
+    [0xE9E5DD] = 0xC4DDE9,
+    [0xE7C878] = 0xFCC907,
 }
 
 -- The old colour for a text colour, or nil if it has none.
@@ -66,6 +75,30 @@ function skin_palette.old_text_colour(rgb)
         return old_desktop_text_colours[old_rgb] or old_rgb
     end
     return other_text_colours[rgb]
+end
+
+-- Other plugins draw their own panels, rows and lines as rectangles in the current look's browns:
+-- warm, dark, nearly grey colours that aren't in the skin. Their old colour is the panel blue of
+-- the old Bank (#1E3146, which the current look's panel brown #332E29 becomes), lighter or
+-- darker as the brown is. Colours that aren't such a brown have none: gold lines stay gold.
+local panel_blue = { 0x1E, 0x31, 0x46 }
+local panel_brown_red = 0x33
+local least_warmth, most_warmth = 4, 60
+local brightest_brown_red = 0xA0
+
+---@param rgb integer
+---@return integer?
+function skin_palette.old_panel_colour(rgb)
+    local red, green, blue = (rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF
+    local warmth = red - blue
+    if red < green or green < blue or warmth < least_warmth or warmth > most_warmth or red > brightest_brown_red then
+        return nil
+    end
+    local old_rgb = 0
+    for _, channel in ipairs(panel_blue) do
+        old_rgb = old_rgb * 256 + math.min(255, math.floor(channel * red / panel_brown_red + 0.5))
+    end
+    return old_rgb
 end
 
 return skin_palette

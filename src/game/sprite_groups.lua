@@ -13,6 +13,12 @@ local sprite_groups = {}
 ---@type SpriteGroup[]
 sprite_groups.all = {
     {
+        name = "sliders_and_scrollbars",
+        -- Before the docked windows, whose pattern matches their scrollbars too.
+        patterns = { "^RS3_SLIDER_", "^SCROLLBAR_", "^RS3_CHILD_SCROLL_BAR_" },
+        changes_often = true,
+    },
+    {
         -- Docked windows' tabs change sprite when clicked, so they come before docked_windows.
         name = "tabs",
         patterns = {
@@ -34,7 +40,7 @@ sprite_groups.all = {
         -- Tiles the game repeats to fill a window, or the middle of a frame built from 3x3 pieces
         -- (piece 4), which the game stretches to fill the frame, so they fit whatever their size.
         name = "backgrounds",
-        patterns = { "^RS3_[A-Z_]*CONTENT_TILE$", "^RS3_CONTENT_FRAME_4$", "^RS3_PARENT_CONTENT_TAB_FRAME_4$" },
+        patterns = { "^RS3_[A-Z_]*CONTENT_TILE$", "^RS3_CONTENT_FRAME_4$", "^RS3_PARENT_CONTENT_TAB_FRAME_4$", "^OLD_BACKGROUND_TEXTURE$" },
         changes_often = false,
     },
     {
@@ -80,6 +86,8 @@ sprite_groups.all = {
         patterns = {
             "^CHECKBOX_DEFAULT$",
             "^BUTTON_CORNERED_[A-Z]+$",
+            "^BUTTON_PANEL_DEFAULT$",
+            "^BUTTON_PANEL_INACTIVE$",
             "^BUTTON_ACCORDION_%d+PX$",
             "^INPUT_SEARCHBOX_%d+PX$",
             "^INPUT_DEFAULT$",
@@ -101,11 +109,19 @@ sprite_groups.all = {
         patterns = {},
         changes_often = true,
     },
-    {
-        name = "sliders_and_scrollbars",
-        patterns = { "^RS3_SLIDER_", "^SCROLLBAR_" },
-        changes_often = true,
-    },
+}
+
+-- Sprites drawn with another sprite's image, as they have none of their own. Other plugins fill
+-- their panels with the game's olive OLD_BACKGROUND_TEXTURE, which gets the old panels' plain
+-- blue: an image is stretched over the whole panel, so a texture wouldn't do.
+---@type table<string, string>
+sprite_groups.image_names = {
+    OLD_BACKGROUND_TEXTURE = "RS3_PARENT_CONTENT_TAB_FRAME_4",
+    -- The panel buttons (used by other plugins too) were added after the old cache and have no
+    -- mobile version. Their image has the same eight states, 24 pixels each, as the cornered
+    -- button's, which has an old version.
+    BUTTON_PANEL_DEFAULT = "BUTTON_CORNERED_NEUTRAL",
+    BUTTON_PANEL_INACTIVE = "BUTTON_CORNERED_NEUTRAL",
 }
 
 -- What players can turn on and off in the settings, each a few groups. Every group is in one.
@@ -186,7 +202,7 @@ sprite_groups.colour_parts = {
     {
         key = sprite_groups.panels_part,
         label = "Backgrounds",
-        patterns = { "^RS3_[A-Z_]*CONTENT_TILE$", "^RS3_CONTENT_FRAME_4$", "^RS3_PARENT_CONTENT_TAB_FRAME_4$" },
+        patterns = { "^RS3_[A-Z_]*CONTENT_TILE$", "^RS3_CONTENT_FRAME_4$", "^RS3_PARENT_CONTENT_TAB_FRAME_4$", "^OLD_BACKGROUND_TEXTURE$" },
     },
     { key = "dropdowns", label = "Dropdowns", patterns = { "^RS3_BTN_DROPDOWN", "^DROPDOWN_" } },
     {
@@ -194,7 +210,7 @@ sprite_groups.colour_parts = {
         label = "Checkboxes and radio buttons",
         patterns = { "^RS3_BTN_CHECKBOX", "^RS3_BTN_RADIO", "^CHECKBOX_" },
     },
-    { key = "scrollbars", label = "Scrollbars", patterns = { "^SCROLLBAR_" } },
+    { key = "scrollbars", label = "Scrollbars", patterns = { "^SCROLLBAR_", "^RS3_CHILD_SCROLL_BAR_" } },
     { key = "sliders", label = "Sliders", patterns = { "^RS3_BTN_ADJUST_SLIDER", "^RS3_SLIDER_" } },
     {
         key = "rows",
@@ -215,6 +231,21 @@ sprite_groups.colour_parts = {
     },
     { key = "buttons", label = "Buttons", patterns = { "^RS3_BTN_", "^RS3_BUTTON_", "^BUTTON_" } },
 }
+
+-- Sprites that keep their own colours in every colour scheme: a small picture in several colours,
+-- like the red and yellow X of a window's close button, is a blob in one.
+local own_colour_patterns = { "^RS3_BTN_MODAL_WINDOW_1_CLOSE_" }
+
+---@param sprite_name string
+---@return boolean
+function sprite_groups.keeps_own_colours(sprite_name)
+    for _, pattern in ipairs(own_colour_patterns) do
+        if sprite_name:find(pattern) then
+            return true
+        end
+    end
+    return false
+end
 
 ---@param sprite_name string
 ---@return string # The key of the colour part the sprite belongs to.
