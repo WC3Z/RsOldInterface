@@ -1,6 +1,6 @@
 {
     "name": "Old Interface",
-    "version": "0.2.2",
+    "version": "0.3.0",
     "contactEmailAddress": "wc3zrs@gmail.com",
     "requiredDependencies": {
         "prettyui": 6398181
