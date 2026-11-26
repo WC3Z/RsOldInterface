@@ -886,6 +886,19 @@ assert(swapped_at_once <= 50, "and are still only checked in turns afterwards, n
 fresh_swapper.stop()
 loaded[31] = nil
 
+-- Lua is asked to collect a little garbage after every update, and not on the frames in between
+local collect_before = collectgarbage
+local steps_asked_for = 0
+collectgarbage = function (what, ...)
+  if what == "step" then steps_asked_for = steps_asked_for + 1 end
+  return collect_before(what, ...)
+end
+fresh_swapper.start(groups.names(all_on))
+tick(20)
+collectgarbage = collect_before
+fresh_swapper.stop()
+assert(steps_asked_for == 20, "one step of collecting per update, not " .. steps_asked_for)
+
 -- the player's own text colours replace the old look's, in any scheme
 local heading = { interfaceID = 19, staticID = 0, categoryID = -1, dynamicID = -1, type = ui.ComponentType.LABEL, visibleGlobal = true, rgb = 0xF0BE79, content = "Heading" }
 local body = { interfaceID = 19, staticID = 1, categoryID = -1, dynamicID = -1, type = ui.ComponentType.LABEL, visibleGlobal = true, rgb = 0xE3D7CF, content = "Body" }

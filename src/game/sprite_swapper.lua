@@ -78,6 +78,9 @@ local runtime_image_id = component_fields.runtime_image_id
 ---@type Swapping?
 local swapping = nil
 
+-- How much collecting Lua is asked to do after each update: as for this many kilobytes of new
+-- objects, which is about what a quiet update makes.
+local garbage_step_kb = 100
 -- How many of the parts checked in turns are checked each update, and while it's quiet.
 local in_turns_per_update = 150
 local in_turns_per_quiet_update = 50
@@ -601,6 +604,16 @@ local function check_some_in_turns(state)
     state.in_turns_index = last + 1
 end
 
+-- Every component the plugin looks at is a small object that's thrown away again, tens of kilobytes
+-- an update. Left alone, Lua lets that pile up until its memory has about doubled and then frees it
+-- all in one frame, which took 30-45 ms every ten or twenty seconds: a visible hitch. So after each
+-- update Lua is asked to do a little of that work, and while things are quiet the pile never
+-- builds up. A hitch can still follow a busy stretch (asking for more work after a busy update
+-- was tried, and it stayed).
+local function collect_some_garbage()
+    collectgarbage("step", garbage_step_kb)
+end
+
 -- Runs before every frame. The game changes its interfaces during its logic updates, which are
 -- fewer than frames, so the looking for new and changed parts is done once after each update,
 -- before the first frame that would show them. On the frames in between, only hot parts are
@@ -643,6 +656,7 @@ local function before_frame(event)
     if events.enabled then
         events.checked(state.parts, recolourer.count())
     end
+    collect_some_garbage()
 end
 
 -- Gives back the game's sprites and tints. Only where a part still has what the plugin set.

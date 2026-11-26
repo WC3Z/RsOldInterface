@@ -14,9 +14,6 @@ local interface_walker = require("src/game/interface_walker")
 local profile = {}
 
 profile.enabled = false
----@type "generational"|"steps"|nil
-profile.garbage_mode = nil
-profile.garbage_step_kb = 100
 -- The benchmark makes the game stutter for a few seconds, so it's only run when asked for.
 profile.runs_benchmark = false
 profile.benchmark_iterations = 100000
@@ -571,19 +568,14 @@ function profile.frame(event, update_number, subjects)
     end
 end
 
--- GARBAGE COLLECTION. Every component the plugin looks at is a new Lua object that's thrown away
--- again, tens of kilobytes an update, which Lua frees in bursts. To try whether freeing it another
--- way gives fewer long frames:
---   "generational"   Lua 5.4's mode for lots of short-lived objects
---   "steps"          a small step of collecting after every update, so there's never much to free
----@param mode "generational"|"steps"|nil
+-- GARBAGE COLLECTION. The plugin asks Lua to collect a little after every update (see
+-- collect_some_garbage in sprite_swapper). To try Lua 5.4's other mode, made for lots of
+-- short-lived objects, against that: "generational".
+---@param mode "generational"|nil
 function profile.collect_garbage_as(mode)
-    profile.garbage_mode = mode
     if mode == "generational" then
         local worked, problem = pcall(collectgarbage, "generational")
         print(string.format("%sgarbage collection: generational %s", prefix, worked and "on" or "isn't available: " .. tostring(problem)))
-    elseif mode == "steps" then
-        print(prefix .. "garbage collection: a step after every update")
     end
 end
 
@@ -591,9 +583,6 @@ end
 function profile.after_update()
     if profile.enabled then
         note_step(nil)
-    end
-    if profile.enabled and profile.garbage_mode == "steps" then
-        pcall(collectgarbage, "step", profile.garbage_step_kb)
     end
 end
 

@@ -12,8 +12,8 @@
 -- With `unstyled = true`, what's showing that the plugin doesn't restyle is listed every few
 -- seconds (see src/debug/unstyled.lua).
 --
--- With `garbage = "generational"` or `garbage = "steps"` as well as `profile`, Lua frees its
--- garbage another way, to try against long frames (see src/debug/profile.lua).
+-- With `garbage = "generational"` as well as `profile`, Lua frees its garbage another way, to
+-- try against long frames (see src/debug/profile.lua).
 --
 -- With `layout = "^RS3_PARENT_BANNER_"`, where the game draws the swapped sprites with matching
 -- names is printed, with the texts over them (see src/debug/layout.lua).
