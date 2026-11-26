@@ -197,9 +197,10 @@ end
 -- A part is about to get its check after an update: counted by why it's checked that often.
 ---@param part SwappedPart
 function events.checked_every_update(part)
-    local why = part.in_use and "in use" or part.visible and (part.changes_often and "showing, changes often" or "showing, a window's frame")
-        or "hidden, a window's frame"
-    profile.count("every update: " .. why, 1)
+    local why = part.in_use and "in use"
+        or part.checked_while_hidden and (part.visible and "showing, a window's frame" or "hidden, a window's frame")
+        or part.near_mouse and "near the mouse" or "its turn, away from the mouse"
+    profile.count("checked after update: " .. why, 1)
 end
 
 -- A swapped part's component is gone.

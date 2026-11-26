@@ -7,7 +7,7 @@ end
 local printed = {}
 print = function (text) printed[#printed + 1] = tostring(text) end
 
-local handlers = { Logic = {}, Draw = {} }
+local handlers = { Logic = {}, Draw = {}, KeyDown = {}, ServerLogic = {} }
 Event = {}
 for name, list in pairs(handlers) do
     Event[name] = { Subscribe = function (n, f) list[n] = f end, Unsubscribe = function (n) list[n] = nil end }

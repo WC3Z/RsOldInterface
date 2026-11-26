@@ -13,7 +13,7 @@ print = function (text)
     real_print(text)
   end
 end
-local subs = { Logic = {}, Draw = {} }
+local subs = { Logic = {}, Draw = {}, KeyDown = {}, ServerLogic = {} }
 Event = {}
 for name, list in pairs(subs) do
   Event[name] = { Subscribe = function (n, f) list[n] = f end, Unsubscribe = function (n) list[n] = nil end }
@@ -276,7 +276,7 @@ assert(skipped_steps["the pass"] and skipped_steps["colour checks"] and skipped_
 assert(cost_lines[#cost_lines]:find("all of it 1%.9%d"), "the cost of all of it from the shorter frames: " .. cost_lines[#cost_lines])
 assert(not events.skips("the pass"), "nothing is left out once the tools are off")
 loaded[5][1].spriteID = 102
-tick(3)
+tick(8)
 assert(loaded[5][1].spriteID == -1, "swapped again after the measuring")
 swapper.stop()
 
@@ -650,7 +650,8 @@ for sprite_id = 110, 112 do
 end
 for _, image in ipairs({ "RS3_PARENT_BANNER_SWORD_RIGHT_LONGER_96", "RS3_PARENT_BANNER_BAR_TILE_LONGER_96",
   "RS3_PARENT_BANNER_SWORD_RIGHT_LONGER_176", "RS3_PARENT_BANNER_BAR_TILE_LONGER_256",
-  "RS3_PARENT_BANNER_SWORD_LEFT_NO_PLATE", "RS3_PARENT_BANNER_SWORD_RIGHT_NO_PLATE" }) do
+  "RS3_PARENT_BANNER_SWORD_LEFT_NO_PLATE", "RS3_PARENT_BANNER_SWORD_RIGHT_NO_PLATE_LONGER_96",
+  "RS3_PARENT_BANNER_BAR_TILE_NO_PLATE_LONGER_96", "RS3_PARENT_BANNER_SWORD_RIGHT_NO_PLATE_LONGER_0" }) do
   Plugin.resources.frames[image] = "img_" .. image
 end
 local pixels_per_letter = 10
@@ -693,8 +694,13 @@ reset_banner()
 window_title.content = "Plugin Hub"
 fresh_swapper.start(groups.names(all_on), nil, { title_plates = false })
 tick(5)
-assert(plate_start.image == "img_RS3_PARENT_BANNER_SWORD_LEFT_NO_PLATE" and plate_end.image == "img_RS3_PARENT_BANNER_SWORD_RIGHT_NO_PLATE", "plates turned off: the pieces without the red")
-assert(plate_bar.image == "img_RS3_PARENT_BANNER_BAR_TILE", "and the usual bar")
+assert(plate_start.image == "img_RS3_PARENT_BANNER_SWORD_LEFT_NO_PLATE", "plates turned off: the start piece as plain bar")
+assert(plate_end.image == "img_RS3_PARENT_BANNER_SWORD_RIGHT_NO_PLATE_LONGER_96" and plate_bar.image == "img_RS3_PARENT_BANNER_BAR_TILE_NO_PLATE_LONGER_96",
+  "and the bar's line starting after the title: " .. tostring(plate_end.image))
+window_title.content = ""
+tick(2)
+assert(plate_end.image == "img_RS3_PARENT_BANNER_SWORD_RIGHT_NO_PLATE_LONGER_0" and plate_bar.image == "img_RS3_PARENT_BANNER_BAR_TILE",
+  "without a title, the line from the start and the usual bar")
 fresh_swapper.stop()
 loaded[25] = nil
 
@@ -720,7 +726,7 @@ for index = 1, 3000 do
 end
 callbacks_made = 0
 local most_callbacks_in_an_update = 0
-for _ = 1, 60 do
+for _ = 1, 600 do
   local before = callbacks_made
   tick(1)
   most_callbacks_in_an_update = math.max(most_callbacks_in_an_update, callbacks_made - before)
@@ -734,6 +740,151 @@ tick(3)
 assert(big_list.children[3000].spriteID == -1, "all of them once the window shows")
 fresh_swapper.stop()
 loaded[26] = nil
+
+-- once it's been quiet for a while, a showing button is checked after every update only while the
+-- mouse is near it; elsewhere within a few updates, or at once after a key press
+local hover_button = sprite(27, 0, 101, true)
+hover_button.xyGlobal, hover_button.width, hover_button.height = { x = 100, y = 200 }, 40, 20
+local far_button = sprite(27, 1, 101, true)
+far_button.xyGlobal, far_button.width, far_button.height = { x = 600, y = 200 }, 40, 20
+load(27, { [0] = hover_button, [1] = far_button })
+local mouse = { x = 110, y = 205 }
+Mouse = { IsAvailable = function () return true end, GetX = function () return mouse.x end, GetY = function () return mouse.y end }
+fresh_swapper.start(groups.names(all_on))
+tick(400)
+-- The game gives the buttons their hover sprite, as it does when the mouse comes over one.
+local function updates_until_swapped_again(button)
+  button.spriteID = 102
+  for updates = 1, 10 do
+    logic() draw()
+    if button.spriteID == -1 then return updates end
+    draw()
+  end
+  return math.huge
+end
+assert(updates_until_swapped_again(hover_button) == 1, "near the mouse: swapped again before the next frame")
+tick(400)
+local updates_away = updates_until_swapped_again(far_button)
+assert(updates_away <= 8, "away from the mouse: within a few updates, not " .. updates_away)
+tick(400)
+mouse.x = 610
+assert(updates_until_swapped_again(far_button) == 1, "the mouse moved there: before the next frame")
+tick(400)
+mouse.x = 110
+for _, handler in pairs(subs.KeyDown) do handler({}) end
+assert(updates_until_swapped_again(far_button) == 1, "after a key press: before the next frame, wherever the mouse is")
+-- a button that was hidden when last looked at comes to show without anything telling the plugin
+-- (a tab switched inside a window): hovering it is still caught before the next frame
+local tab_button = sprite(27, 2, 101, false)
+tab_button.xyGlobal, tab_button.width, tab_button.height = { x = 300, y = 400 }, 40, 20
+loaded[27][2] = tab_button
+tick(400)
+assert(tab_button.spriteID == -1, "the hidden button is swapped")
+tab_button.visibleGlobal = true
+mouse.x, mouse.y = 310, 405
+assert(updates_until_swapped_again(tab_button) == 1, "hovered right after it came to show: swapped again before the next frame")
+-- and the game giving a button its hover sprite on a frame between updates is caught on that frame
+tick(400)
+logic() draw()
+hover_button.spriteID = 102
+mouse.x, mouse.y = 110, 205
+draw()
+assert(hover_button.spriteID == -1, "hover sprite given between updates: swapped again before that frame")
+-- a recoloured panel the mouse is over gets its colour back before the next frame when the game
+-- sets its own again (as it does when the mouse comes over it or leaves); one elsewhere, within a
+-- few updates
+local hover_card = { interfaceID = 27, staticID = 3, categoryID = -1, dynamicID = -1, type = ui.ComponentType.RECTANGLE, visibleGlobal = true,
+  rgb = 0x24211E, xyGlobal = { x = 100, y = 300 }, width = 200, height = 80 }
+local far_card = { interfaceID = 27, staticID = 4, categoryID = -1, dynamicID = -1, type = ui.ComponentType.RECTANGLE, visibleGlobal = true,
+  rgb = 0x24211E, xyGlobal = { x = 600, y = 300 }, width = 200, height = 80 }
+loaded[27][3], loaded[27][4] = hover_card, far_card
+tick(400)
+assert(hover_card.rgb == 0x152648 and far_card.rgb == 0x152648, "both cards recoloured")
+local function updates_until_recoloured(rectangle_component)
+  rectangle_component.rgb = 0x24211E
+  for updates = 1, 10 do
+    logic() draw()
+    if rectangle_component.rgb == 0x152648 then return updates end
+    draw()
+  end
+  return math.huge
+end
+mouse.x, mouse.y = 150, 340
+tick(8)
+assert(updates_until_recoloured(hover_card) == 1, "under the mouse: recoloured before the next frame")
+tick(400)
+local updates_for_far_card = updates_until_recoloured(far_card)
+assert(updates_for_far_card <= 4, "away from the mouse: within a few updates, not " .. updates_for_far_card)
+mouse.x = 900
+tick(1)
+assert(updates_until_recoloured(hover_card) <= 4, "after the mouse left")
+fresh_swapper.stop()
+Mouse = nil
+loaded[27] = nil
+
+-- once it's been quiet for a while, a window that opens right after the server sent something
+-- is still swapped before its first frame; one that opens with nothing from the server, within a
+-- couple of updates, or a few if it's the first time it loads
+local function packet() for _, handler in pairs(subs.ServerLogic) do handler() end end
+local function updates_until_swapped(component)
+  for updates = 1, 12 do
+    logic() draw()
+    if component.spriteID == -1 then return updates end
+    draw()
+  end
+  return math.huge
+end
+local window_piece = sprite(28, 0, 101, false)
+load(28, { [0] = window_piece })
+fresh_swapper.start(groups.names(all_on))
+tick(400)
+window_piece.spriteID = 101
+window_piece.visibleGlobal = true
+packet()
+assert(updates_until_swapped(window_piece) == 1, "shown after a packet: swapped before its first frame")
+window_piece.visibleGlobal = false
+tick(700)
+window_piece.spriteID = 101
+window_piece.visibleGlobal = true
+local updates_without_packet = updates_until_swapped(window_piece)
+assert(updates_without_packet <= 2, "shown with nothing from the server: within two updates, not " .. updates_without_packet)
+tick(700)
+local new_window_piece = sprite(29, 0, 101, true)
+packet()
+load(29, { [0] = new_window_piece })
+assert(updates_until_swapped(new_window_piece) == 1, "loaded for the first time after a packet: swapped before its first frame")
+tick(700)
+local late_window_piece = sprite(30, 0, 101, true)
+load(30, { [0] = late_window_piece })
+local updates_for_first_load = updates_until_swapped(late_window_piece)
+assert(updates_for_first_load <= 8, "loaded for the first time with nothing from the server: within a few updates, not " .. updates_for_first_load)
+loaded[30] = nil
+tick(700)
+late_window_piece.spriteID = 101
+load(30, { [0] = late_window_piece })
+assert(updates_until_swapped(late_window_piece) == 1, "loaded again later: swapped before its first frame, as its ID is known")
+fresh_swapper.stop()
+loaded[28], loaded[29], loaded[30] = nil, nil, nil
+
+-- the game building many hidden parts again at once (the HUD behind a loading screen) doesn't
+-- make them all checked after every update from then on
+local hud = { [0] = sprite(31, 0, 999, true) }
+for index = 1, 400 do hud[index] = sprite(31, index, 101, false) end
+load(31, hud)
+fresh_swapper.start(groups.names(all_on))
+tick(400)
+for index = 1, 400 do hud[index].spriteID = 102 end
+tick(400)
+for index = 1, 400 do assert(hud[index].spriteID == -1, "the rebuilt parts are swapped again, in turns") end
+for index = 1, 100 do hud[index].spriteID = 102 end
+logic() draw()
+local swapped_at_once = 0
+for index = 1, 100 do
+  if hud[index].spriteID == -1 then swapped_at_once = swapped_at_once + 1 end
+end
+assert(swapped_at_once <= 50, "and are still only checked in turns afterwards, not all at once: " .. swapped_at_once)
+fresh_swapper.stop()
+loaded[31] = nil
 
 -- the player's own text colours replace the old look's, in any scheme
 local heading = { interfaceID = 19, staticID = 0, categoryID = -1, dynamicID = -1, type = ui.ComponentType.LABEL, visibleGlobal = true, rgb = 0xF0BE79, content = "Heading" }

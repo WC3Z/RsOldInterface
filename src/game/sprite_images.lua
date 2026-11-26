@@ -99,7 +99,7 @@ local function look_for(sprite_name, group_name)
     return {
         image = image,
         sprite_name = sprite_name,
-        follows_title = shows_title_plates and title_plate.follows_title(sprite_name),
+        follows_title = title_plate.follows_title(sprite_name),
         tint = tint,
         image_set_suffix = image_set_suffix,
         changes_often = sprite_groups.changes_often(group_name),

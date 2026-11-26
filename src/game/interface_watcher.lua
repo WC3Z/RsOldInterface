@@ -66,9 +66,25 @@ local interface_watcher = {}
 -- Lua to free, and most of the time nothing changes.
 local showing_components_per_update = 600
 local showing_components_per_quiet_update = 150
-local busy_updates = 150
--- The slow walk over everything.
+local busy_updates = 50
+-- The slow walk over everything, and while it's quiet.
 local background_components_per_update = 50
+local background_components_per_quiet_update = 25
+-- Nearly everything that opens does so because of something the server sent, or a key press. So
+-- for a few updates after either (while "alert"), loading and showing are looked for in full
+-- every update, as they have to be noticed before the next frame. The rest of the time:
+-- - of the interface IDs, only the ones that were loaded at some point are checked every update,
+--   and the others a share at a time;
+-- - a hidden interface is checked for showing every other update.
+-- What opens without the server or a key (a click the game handles by itself) can so be noticed an
+-- update late, or a few if it's the first time that interface loads.
+local alert_updates = 3
+-- And for this many after something loaded, showed, was rebuilt or a key was pressed: what the
+-- game builds because of it follows over the next updates.
+local alert_updates_after_a_change = 15
+local updates_between_checks_of_loaded_interfaces = 8
+local updates_to_check_every_interface_id = 16
+local updates_between_checks_of_hidden_interfaces = 2
 -- A component the game created thousands of parts in (the Bank's items, while it's closed) would
 -- be a frame's worth of work in one go for the slow walk: it only visits the first this many. The
 -- rest are found when the window shows.
@@ -82,6 +98,12 @@ local fresh_updates = 30
 local fresh_updates_after_new_parts = 6
 -- How many updates a pointed-out component is walked for.
 local container_updates = 4
+-- Noticing that an interface shows can't wait: it has to be changed before its first frame. That
+-- it's hidden again can: all that's lost is some walking of what no longer shows. So an interface
+-- that's showing (most always are, like the parts of the HUD) is only checked every few updates,
+-- each in its own turn; a hidden one far more often (see alert_updates), and so is one with
+-- several roots, where one can show while another already does.
+local updates_between_checks_of_showing_interfaces = 8
 -- An interface's roots are each checked for showing (the docked windows' tab bars are all roots of
 -- one interface). Only the first few if there are more than this: if the tree couldn't be read,
 -- every component counts as a root.
@@ -100,9 +122,16 @@ local longest_fresh_interval = 3
 -- seconds, for what turns up while a window's being used (like rows when a list is scrolled).
 local warm_updates = 500
 local warm_interval = 4
+-- All warm interfaces together get this many lookups an update, taking turns: after a loading
+-- screen every part of the HUD shows again at once, and walking all of it for ten seconds cost
+-- half the frame rate.
+local warm_components_per_update = 300
+local most_shown_at_once_to_stay_warm = 5
+local updates_without_warm_after_many_show = 100
 -- Components where the game created parts that were found late are remembered and walked every
 -- update from then on (like the layer plugins' windows are made in): at most this many.
 local most_remembered_containers = 24
+local updates_between_quiet_walks_of_remembered = 4
 -- When the game rebuilds something in a fresh or warm interface, the whole interface is walked
 -- before the frame (what's rebuilt often isn't all in one place), but not more often than this.
 local updates_between_rebuild_walks = 3
@@ -110,6 +139,9 @@ local updates_between_rebuild_walks = 3
 -- are walked every update while they show: the pop-up lists of the ribbon's and docked windows'
 -- tabs, and the window plugins put their content in.
 local always_fresh_ids = game_ids.interface_ids({ "TOPLEVEL_V2_PARENTS_QUICKCHILDREN", "TOPLEVEL_V2_PLUGIN_CONTENT" })
+-- What follows the mouse about: these show and are rebuilt all the time while the player just
+-- moves the mouse, so they don't count as something happening (see showing_components_per_update).
+local follows_mouse_ids = game_ids.interface_ids({ "TOPLEVEL_V2_HOVER_TARGET", "TEXT_TOOLTIP", "MINIMENU" })
 -- The main interface holds every window: it never becomes fresh, nor does what's mounted in it
 -- because of it.
 local main_interface_id = game_ids.interface_id("TOPLEVEL_V2")
@@ -146,6 +178,11 @@ end
 ---@field visit_as table<WalkKind, fun(component: ui.Component)> The caller's visit for each kind of walk.
 ---@field update_number integer
 ---@field busy_until integer The update until which things count as happening (see showing_components_per_update).
+---@field no_warm_until integer The update until which nothing stays warm (see most_shown_at_once_to_stay_warm).
+---@field alert_until integer The update until which loading and showing are looked for in full (see alert_updates).
+---@field was_loaded table<integer, boolean> The interface IDs that were loaded at some point.
+---@field was_loaded_ids integer[] The same, as a list.
+---@field next_id_checked integer Where the check of the other interface IDs carries on.
 ---@field is_started boolean Whether before_frame has run: until then, everything loaded is new.
 ---@field loaded table<integer, boolean> The loaded interfaces, and whether they were showing when last checked.
 ---@field trees table<integer, StaticTree>
@@ -204,10 +241,50 @@ local function mounted_in(component)
     return parent ~= nil and parent.interfaceID or nil
 end
 
--- Something happened in the interfaces: more may follow, so the pass goes at full speed for a while.
+-- Something happened in an interface: more may follow, so the pass goes at full speed for a while.
 ---@param watch InterfaceWatch
-local function stay_busy(watch)
+---@param interface_id integer
+local function stay_busy(watch, interface_id)
+    if not follows_mouse_ids[interface_id] then
+        watch.busy_until = watch.update_number + busy_updates
+        watch.alert_until = math.max(watch.alert_until, watch.update_number + alert_updates_after_a_change)
+    end
+end
+
+-- Something happened in a component, unless it's a remembered one: new parts keep turning up in
+-- those (the box of text that follows the mouse is one), and they're walked often as it is.
+---@param watch InterfaceWatch
+---@param interface_id integer
+---@param static_id integer
+local function stay_busy_unless_remembered(watch, interface_id, static_id)
+    if watch.remembered_containers[interface_id .. ":" .. static_id] == nil then
+        stay_busy(watch, interface_id)
+    end
+end
+
+-- The player pressed a key: what the game does about it follows within a few updates.
+---@param watch InterfaceWatch
+function interface_watcher.player_did_something(watch)
     watch.busy_until = watch.update_number + busy_updates
+    watch.alert_until = math.max(watch.alert_until, watch.update_number + alert_updates_after_a_change)
+end
+
+-- Something arrived from the server: what the game does about it follows within a few updates.
+---@param watch InterfaceWatch
+local function become_alert(watch)
+    watch.alert_until = math.max(watch.alert_until, watch.update_number + alert_updates)
+end
+
+---@param watch InterfaceWatch
+---@return boolean # Whether something may be about to open (see alert_updates).
+function interface_watcher.is_alert(watch)
+    return watch.update_number <= watch.alert_until
+end
+
+---@param watch InterfaceWatch
+---@return boolean # Whether something happened lately (see showing_components_per_update).
+function interface_watcher.is_busy(watch)
+    return watch.update_number <= watch.busy_until
 end
 
 ---@param watch InterfaceWatch
@@ -221,7 +298,7 @@ end
 ---@param interface_id integer
 ---@param reason string
 local function make_fresh(watch, interface_id, reason)
-    stay_busy(watch)
+    stay_busy(watch, interface_id)
     if events.enabled and watch.closely_watched[interface_id] == nil then
         events.watching_closely(interface_id, reason)
     end
@@ -245,7 +322,7 @@ end
 ---@param is_created boolean Whether the game created the part while running.
 ---@param walk_kind WalkKind The walk that found it.
 function interface_watcher.found_new_part(watch, interface_id, static_id, is_created, walk_kind)
-    stay_busy(watch)
+    stay_busy_unless_remembered(watch, interface_id, static_id)
     local was_late = walk_kind ~= "now"
     -- The background walk goes over hidden parts too: what it finds says nothing about the rest.
     local found_while_showing = was_late and walk_kind ~= "background"
@@ -273,7 +350,16 @@ end
 -- of its own that was loaded before (like the music player in Settings), filled in a bit later.
 ---@param watch InterfaceWatch
 local function make_mounted_interfaces_fresh(watch)
-    if next(watch.closely_watched) == nil then
+    -- Only while something that opened is still fresh: looking at every showing interface's root
+    -- costs as much as a good part of the pass.
+    local something_opened = false
+    for _, watched in pairs(watch.closely_watched) do
+        if watched.opened and watched.fresh_updates_left > 1 then
+            something_opened = true
+            break
+        end
+    end
+    if not something_opened then
         return
     end
     for interface_id, showing in pairs(watch.loaded) do
@@ -301,7 +387,7 @@ end
 ---@param interface_id integer
 ---@param static_id integer
 function interface_watcher.walk_container_soon(watch, interface_id, static_id)
-    stay_busy(watch)
+    stay_busy_unless_remembered(watch, interface_id, static_id)
     watch.containers[interface_id .. ":" .. static_id] = {
         interface_id = interface_id,
         static_id = static_id,
@@ -379,33 +465,108 @@ local function on_loaded(watch, interface_id, is_start)
 end
 
 ---@param watch InterfaceWatch
+---@param interface_id integer
+---@param was_showing boolean
+---@return boolean # Whether the interface is checked for showing this update.
+local function is_due_for_showing_check(watch, interface_id, was_showing)
+    local tree = watch.trees[interface_id]
+    -- What follows the mouse shows and hides too fast for a check every few updates to tell.
+    if tree == nil or follows_mouse_ids[interface_id] or always_fresh_ids[interface_id] or interface_watcher.is_alert(watch) then
+        return true
+    end
+    -- With several roots, one can show while another already does: as for a hidden interface.
+    local is_steadily_showing = was_showing and #tree.roots == 1
+    local interval = is_steadily_showing and updates_between_checks_of_showing_interfaces or updates_between_checks_of_hidden_interfaces
+    return (watch.update_number + interface_id) % interval == 0
+end
+
+-- Notes whether an interface ID is loaded now. That one has unloaded can wait (all that's lost is
+-- some looking for what's gone), and asking about a loaded interface makes an object for Lua to
+-- free each time, so the loaded ones are only asked about every few updates, each in its turn.
+---@param watch InterfaceWatch
+---@param interface_id integer
+---@param is_start boolean
+local function check_loaded(watch, interface_id, is_start)
+    local is_loaded = watch.loaded[interface_id] ~= nil
+    if is_loaded and (watch.update_number + interface_id) % updates_between_checks_of_loaded_interfaces ~= 0 then
+        return
+    end
+    if ui.Interfaces:GetInterface(interface_id) then
+        if watch.loaded[interface_id] == nil then
+            if not watch.was_loaded[interface_id] then
+                watch.was_loaded[interface_id] = true
+                watch.was_loaded_ids[#watch.was_loaded_ids + 1] = interface_id
+            end
+            on_loaded(watch, interface_id, is_start)
+        end
+    elseif watch.loaded[interface_id] ~= nil then
+        watch.loaded[interface_id] = nil
+        watch.trees[interface_id] = nil
+        watch.showing_roots[interface_id] = nil
+        watch.closely_watched[interface_id] = nil
+    end
+end
+
+-- Looks for interfaces that loaded or unloaded: among every ID while alert, else among the ones
+-- that were loaded before and a share of the others (see alert_updates).
+---@param watch InterfaceWatch
+---@param is_start boolean
+local function find_loaded(watch, is_start)
+    local last_id = interface_walker.last_interface_id
+    if is_start or interface_watcher.is_alert(watch) then
+        for interface_id = 0, last_id do
+            check_loaded(watch, interface_id, is_start)
+        end
+        return
+    end
+    for index = 1, #watch.was_loaded_ids do
+        check_loaded(watch, watch.was_loaded_ids[index], false)
+    end
+    local share = (last_id + 1) // updates_to_check_every_interface_id + 1
+    if events.enabled then
+        events.count("updates with only some interface IDs checked", 1)
+    end
+    for _ = 1, share do
+        check_loaded(watch, watch.next_id_checked, false)
+        watch.next_id_checked = watch.next_id_checked >= last_id and 0 or watch.next_id_checked + 1
+    end
+end
+
+---@param watch InterfaceWatch
 ---@param is_start boolean
 local function find_loaded_and_shown(watch, is_start)
-    for interface_id = 0, interface_walker.last_interface_id do
-        if ui.Interfaces:GetInterface(interface_id) then
-            if watch.loaded[interface_id] == nil then
-                on_loaded(watch, interface_id, is_start)
-            end
-        elseif watch.loaded[interface_id] ~= nil then
-            watch.loaded[interface_id] = nil
-            watch.trees[interface_id] = nil
-            watch.showing_roots[interface_id] = nil
-            watch.closely_watched[interface_id] = nil
-        end
-    end
+    find_loaded(watch, is_start)
     local showing_count = 0
-    for interface_id in pairs(watch.loaded) do
-        local showing, newly_showing = check_showing(watch, interface_id)
-        if showing then
-            showing_count = showing_count + 1
-            if newly_showing then
+    local newly_shown_ids = {}
+    for interface_id, was_showing in pairs(watch.loaded) do
+        local showing = was_showing
+        if is_start or is_due_for_showing_check(watch, interface_id, was_showing) then
+            local newly_showing
+            showing, newly_showing = check_showing(watch, interface_id)
+            if showing and newly_showing then
                 make_fresh(watch, interface_id, "shown")
+                newly_shown_ids[#newly_shown_ids + 1] = interface_id
                 if events.enabled then
                     events.opened(interface_id, "shown", "")
                 end
             end
+            watch.loaded[interface_id] = showing
         end
-        watch.loaded[interface_id] = showing
+        if showing then
+            showing_count = showing_count + 1
+        end
+    end
+    -- Many showing at once is the whole HUD coming back, as after a loading screen, not windows
+    -- the player opened: they're walked while fresh, but nothing more is expected to turn up.
+    if #newly_shown_ids > most_shown_at_once_to_stay_warm and not is_start then
+        watch.no_warm_until = watch.update_number + updates_without_warm_after_many_show
+    end
+    -- That goes for everything that's fresh around then: what loaded just before the HUD came
+    -- back, and what shows in the updates after.
+    if watch.update_number <= watch.no_warm_until then
+        for _, watched in pairs(watch.closely_watched) do
+            watched.warm_updates_left = 0
+        end
     end
     make_mounted_interfaces_fresh(watch)
     for interface_id in pairs(always_fresh_ids) do
@@ -444,23 +605,33 @@ end
 ---@return integer # How many components were looked up.
 local function walk_closely_watched(watch, interface_ids)
     local count = #interface_ids
-    local looked_up = 0
+    local looked_up, looked_up_in_warm = 0, 0
+    -- Where the next update starts: at the first one that was due and had to wait.
+    local next_turn = nil
     for turn = 0, count - 1 do
-        if looked_up >= fresh_components_per_update then
-            watch.watched_turn = watch.watched_turn + turn
-            break
-        end
         local interface_id = interface_ids[(watch.watched_turn + turn) % count + 1]
         local watched = watch.closely_watched[interface_id]
         local tree = watch.trees[interface_id]
+        local is_warm = watched.fresh_updates_left <= 0
         if tree and watch.loaded[interface_id] and watch.update_number - watched.walked_at >= walk_interval(watched) then
-            -- What a warm walk finds was showing unchanged for a few updates.
-            local visit = watched.fresh_updates_left <= 0 and watch.visit_as.warm or watch.visit_as.now
-            local _, walked = interface_walker.walk_showing(interface_id, tree, visit, 1, math.huge)
-            watched.walked_at = watch.update_number
-            watched.lookups = walked
-            looked_up = looked_up + walked
+            local has_to_wait = looked_up >= fresh_components_per_update or (is_warm and looked_up_in_warm >= warm_components_per_update)
+            if has_to_wait then
+                next_turn = next_turn or watch.watched_turn + turn
+            else
+                -- What a warm walk finds was showing unchanged for a few updates.
+                local visit = is_warm and watch.visit_as.warm or watch.visit_as.now
+                local _, walked = interface_walker.walk_showing(interface_id, tree, visit, 1, math.huge)
+                watched.walked_at = watch.update_number
+                watched.lookups = walked
+                looked_up = looked_up + walked
+                if is_warm then
+                    looked_up_in_warm = looked_up_in_warm + walked
+                end
+            end
         end
+    end
+    if next_turn then
+        watch.watched_turn = next_turn
     end
     return looked_up
 end
@@ -483,11 +654,13 @@ local function age_closely_watched(watch, interface_ids)
     end
 end
 
--- The remembered components are walked every update, unless their interface is walked anyway.
+-- The remembered components are walked often, unless their interface is walked anyway.
 ---@param watch InterfaceWatch
 local function walk_remembered_containers(watch)
+    -- Every update while something may be opening, else every few.
+    local is_due = interface_watcher.is_alert(watch) or watch.update_number % updates_between_quiet_walks_of_remembered == 0
     for _, container in pairs(watch.remembered_containers) do
-        if not watch.closely_watched[container.interface_id] then
+        if is_due and not watch.closely_watched[container.interface_id] then
             interface_walker.visit_static(container.interface_id, container.static_id, watch.visit_as.now, true)
         end
         if events.enabled then
@@ -535,7 +708,7 @@ end
 
 ---@param watch InterfaceWatch
 local function continue_showing_pass(watch)
-    local is_quiet = watch.update_number > watch.busy_until
+    local is_quiet = not interface_watcher.is_busy(watch)
     local budget = is_quiet and showing_components_per_quiet_update or showing_components_per_update
     if events.enabled then
         events.count("quiet updates", is_quiet and 1 or 0)
@@ -579,7 +752,8 @@ local function continue_background_walk(watch)
         watch.visit_as.background(component)
     end
     local started_walks = 0
-    while looked_up < background_components_per_update do
+    local budget = interface_watcher.is_busy(watch) and background_components_per_update or background_components_per_quiet_update
+    while looked_up < budget do
         local interface_id = watch.background_ids[watch.background_index]
         if interface_id == nil then
             started_walks = started_walks + 1
@@ -650,7 +824,12 @@ function interface_watcher.start(subscription_name, visit)
             background = function (component) visit(component, "background") end,
         },
         update_number = 0,
-        busy_until = busy_updates,
+        busy_until = 150,
+        alert_until = 150,
+        no_warm_until = -1,
+        was_loaded = {},
+        was_loaded_ids = {},
+        next_id_checked = 0,
         is_started = false,
         loaded = {},
         trees = {},
@@ -671,12 +850,16 @@ function interface_watcher.start(subscription_name, visit)
     Event.Logic.Subscribe(subscription_name, guard.guarded("in an update", function ()
         watch.update_number = watch.update_number + 1
     end))
+    Event.ServerLogic.Subscribe(subscription_name, guard.guarded("after a packet from the server", function ()
+        become_alert(watch)
+    end))
     return watch
 end
 
 ---@param watch InterfaceWatch
 function interface_watcher.stop(watch)
     Event.Logic.Unsubscribe(watch.subscription_name)
+    Event.ServerLogic.Unsubscribe(watch.subscription_name)
 end
 
 return interface_watcher

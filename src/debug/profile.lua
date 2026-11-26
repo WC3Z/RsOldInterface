@@ -55,6 +55,10 @@ local long_frames = 0
 local long_frames_freeing_memory = 0
 local freed_kb_that_counts = 2000
 
+-- What each step of the plugin's work left behind for Lua to free (see the garbage section).
+---@type table<string, number>
+local garbage_kb = {}
+
 ---@return number # Lua's memory in KB, or 0 if it can't be told.
 local function memory_kb()
     local found, kb = pcall(collectgarbage, "count")
@@ -110,6 +114,8 @@ local function report()
         per_update(counts, updates, "%s %.1f")))
     long_frames = 0
     long_frames_freeing_memory = 0
+    print(string.format("%sgarbage, KB per update: %s", prefix, per_update(garbage_kb, updates, "%s %.1f")))
+    garbage_kb = {}
     counts = {}
     frames = 0
     frame_seconds = 0
@@ -282,10 +288,33 @@ local cost_steps = {
 ---@type { index: integer, phase: CostPhase?, baseline_seconds: number?, pending: { step: string, frame_seconds: number, frames_per_update: number, before: number }?, sums: table<string, number>, rounds: integer, baseline_fps: number, without_fps: number }
 local cost = { index = 0, sums = {}, rounds = 0, baseline_fps = 0, without_fps = 0 }
 
+-- GARBAGE. Every object the plugin gets from the game is thrown away again, for Lua to free later
+-- (in the long frames above). The plugin asks about each step right before doing it (profile.skips),
+-- so Lua's memory then, less what it was when the step before started, is what that step left
+-- behind. Printed per update with each report.
+---@type string?
+local step_running = nil
+local memory_kb_at_step = 0
+
+-- A step of the plugin's work is about to start (or, without a name, the update's work is done).
+---@param step string?
+local function note_step(step)
+    local now = memory_kb()
+    -- Less memory than before means Lua freed some meanwhile: nothing can be told then.
+    if step_running and now >= memory_kb_at_step then
+        garbage_kb[step_running] = (garbage_kb[step_running] or 0) + now - memory_kb_at_step
+    end
+    step_running = step
+    memory_kb_at_step = now
+end
+
 -- Whether a step of the plugin's work is left out right now, to measure what it costs.
 ---@param step string One of cost_steps.
 ---@return boolean
 function profile.skips(step)
+    if profile.enabled then
+        note_step(step)
+    end
     local phase = cost.phase
     return phase ~= nil and phase.step ~= nil and (phase.step == step or phase.step == all_steps)
 end
@@ -560,6 +589,9 @@ end
 
 -- Called once after each update's work.
 function profile.after_update()
+    if profile.enabled then
+        note_step(nil)
+    end
     if profile.enabled and profile.garbage_mode == "steps" then
         pcall(collectgarbage, "step", profile.garbage_step_kb)
     end

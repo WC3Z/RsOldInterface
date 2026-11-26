@@ -8,8 +8,11 @@
 -- A plugin can't resize the game's components, so the plate is made longer with images instead:
 -- the end piece and the bar each have versions with the plate carrying on for 16, 32, 48...
 -- pixels before it ends (resources/frames/<sprite name>_LONGER_<pixels>.png), and the one that
--- reaches the end of the title is drawn. The player can also have no plate at all
--- (<sprite name>_NO_PLATE.png).
+-- reaches the end of the title is drawn.
+--
+-- The player can also have no plate at all. Then the pieces are plain bar, and the bar's line
+-- starts after the title instead of running through its letters, with the same kind of versions
+-- (<sprite name>_NO_PLATE_LONGER_<pixels>.png, and <start piece>_NO_PLATE.png).
 local title_plate = {}
 
 local start_piece = "RS3_PARENT_BANNER_SWORD_LEFT"
@@ -81,24 +84,28 @@ end
 ---@param shows_plate boolean Whether the player wants the plate.
 ---@return string?
 function title_plate.image_name_at(component, sprite_name, shows_plate)
-    if sprite_name ~= start_piece and sprite_name ~= end_piece and sprite_name ~= bar_piece then
-        return nil
-    end
-    if not shows_plate then
-        return sprite_name ~= bar_piece and sprite_name .. "_NO_PLATE" or nil
-    end
     if sprite_name == start_piece then
+        return not shows_plate and sprite_name .. "_NO_PLATE" or nil
+    end
+    if sprite_name ~= end_piece and sprite_name ~= bar_piece then
         return nil
     end
-    -- The game's objects can be gone or of another kind by now: then it's the usual image.
+    -- The game's objects can be gone or of another kind by now: then it's as without a title.
     local measured, longer = pcall(extra_length, component)
-    if not measured or longer == 0 then
-        return nil
+    if not measured then
+        longer = 0
     end
     if sprite_name == end_piece then
         longer = math.min(longer, end_piece_width)
     end
-    return sprite_name .. "_LONGER_" .. longer
+    if shows_plate then
+        return longer > 0 and sprite_name .. "_LONGER_" .. longer or nil
+    end
+    -- Without a plate the end piece is always another image, the bar only where the title reaches it.
+    if sprite_name == bar_piece and longer == 0 then
+        return nil
+    end
+    return sprite_name .. "_NO_PLATE_LONGER_" .. longer
 end
 
 return title_plate

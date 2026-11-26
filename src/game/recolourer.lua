@@ -32,9 +32,27 @@ local skin_coloured_fields = {
 ---@field applied_rgb integer The colour the plugin gave it.
 ---@field visible boolean Whether it was showing when last looked at.
 ---@field is_text boolean
+---@field turn integer Which of the updates it's checked in while it's quiet.
+---@field left number? Where it was on screen when last looked at.
+---@field top number?
+---@field right number?
+---@field bottom number?
+---@field near_mouse boolean Whether the mouse was near it at the last update.
 
 -- Hidden recoloured colours are only checked every this many updates: they can't flash.
 local hidden_check_interval = 10
+-- While it's quiet (nothing from the server, opened, rebuilt or pressed for a few updates), showing ones
+-- are checked every few updates, each in its own turn, and hidden ones more rarely still.
+local quiet_check_interval = 4
+local near_mouse_margin = 12
+local quiet_hidden_check_interval = 40
+-- How many colours were recoloured for the first time, to give each its turn.
+local colours_made = 0
+-- The keys of the recoloured colours that were showing when last looked at, and whether colours
+-- were recoloured for the first time since the list was made (see recolourer.recolour_changed).
+---@type string[]
+local showing_keys = {}
+local showing_keys_are_stale = true
 
 -- Interfaces whose colours are left alone: hover tooltips are rebuilt for every hover, so their
 -- text would change colour a moment after showing each time.
@@ -168,6 +186,10 @@ function recolourer.recolour(component, walk_kind)
             events.found_late(component.interfaceID, coloured.is_text and "a text colour" or "a panel colour", walk_kind)
         end
     end
+    if known == nil then
+        colours_made = colours_made + 1
+        showing_keys_are_stale = true
+    end
     recoloured[key] = {
         interface_id = component.interfaceID,
         static_id = component.staticID,
@@ -178,7 +200,12 @@ function recolourer.recolour(component, walk_kind)
         applied_rgb = look_rgb,
         visible = is_showing,
         is_text = coloured.is_text,
+        turn = known and known.turn or colours_made,
+        near_mouse = false,
     }
+    if is_showing then
+        pcall(note_place, recoloured[key], component)
+    end
 end
 
 -- The component a recoloured colour is on, if it's still there and still the same kind.
@@ -194,25 +221,93 @@ local function find(colour)
     return nil
 end
 
--- Gives the look's colour again where the game has set its own since. Hidden ones are only looked
--- at every few updates, and ones that are gone are forgotten.
+-- Notes where a recoloured component is on screen, for telling later whether the mouse is near it.
+---@param colour RecolouredColour
+---@param component ui.Component
+local function note_place(colour, component)
+    local position = component.xyGlobal
+    colour.left, colour.top = position.x, position.y
+    colour.right, colour.bottom = position.x + component.width, position.y + component.height
+end
+
+---@param colour RecolouredColour
+---@param mouse_x number?
+---@param mouse_y number?
+---@return boolean
+local function is_near_mouse(colour, mouse_x, mouse_y)
+    if mouse_x == nil or mouse_y == nil or colour.left == nil then
+        return false
+    end
+    return mouse_x >= colour.left - near_mouse_margin and mouse_x <= colour.right + near_mouse_margin
+        and mouse_y >= colour.top - near_mouse_margin and mouse_y <= colour.bottom + near_mouse_margin
+end
+
+-- Gives a recoloured colour the look's colour again if the game has set its own since, and forgets
+-- it if its component is gone.
+---@param key string
+---@param colour RecolouredColour
+---@return boolean # Whether its component is still there.
+local function check(key, colour)
+    local component = find(colour)
+    if component == nil then
+        recoloured[key] = nil
+        return false
+    end
+    colour.visible = component.visibleGlobal
+    if colour.visible then
+        pcall(note_place, colour, component)
+    end
+    local game_rgb = read_colour(component, colour.field)
+    local look_rgb = game_rgb and game_rgb ~= colour.applied_rgb and look_colour_of(component, game_rgb, colour.is_text)
+    if look_rgb and write_colour(component, colour.field, look_rgb) then
+        colour.game_rgb = game_rgb
+        colour.applied_rgb = look_rgb
+    end
+    return true
+end
+
+-- Gives the look's colour again where the game has set its own since. Showing colours are kept
+-- on a list of their own, so that most updates don't have to go through every recoloured colour
+-- (hundreds, most of them hidden). Every few updates all of them are looked at, hidden ones too,
+-- and the list is made anew.
 ---@param update_number integer
-function recolourer.recolour_changed(update_number)
-    local checks_hidden = update_number % hidden_check_interval == 0
+---@param is_quiet boolean Whether nothing is likely to be changing (see interface_watcher.is_alert).
+---@param mouse_x number? Where the mouse is, if that can be told.
+---@param mouse_y number?
+function recolourer.recolour_changed(update_number, is_quiet, mouse_x, mouse_y)
+    local checks_all = update_number % (is_quiet and quiet_hidden_check_interval or hidden_check_interval) == 0
     local checked = 0
-    for key, colour in pairs(recoloured) do
-        if colour.visible or checks_hidden then
-            local component = find(colour)
-            if component == nil then
-                recoloured[key] = nil
-            else
+    if checks_all then
+        showing_keys = {}
+        for key, colour in pairs(recoloured) do
+            if check(key, colour) then
                 checked = checked + 1
-                colour.visible = component.visibleGlobal
-                local game_rgb = read_colour(component, colour.field)
-                local look_rgb = game_rgb and game_rgb ~= colour.applied_rgb and look_colour_of(component, game_rgb, colour.is_text)
-                if look_rgb and write_colour(component, colour.field, look_rgb) then
-                    colour.game_rgb = game_rgb
-                    colour.applied_rgb = look_rgb
+                if colour.visible then
+                    showing_keys[#showing_keys + 1] = key
+                end
+            end
+        end
+        showing_keys_are_stale = false
+    else
+        if showing_keys_are_stale then
+            showing_keys = {}
+            for key, colour in pairs(recoloured) do
+                if colour.visible then
+                    showing_keys[#showing_keys + 1] = key
+                end
+            end
+            showing_keys_are_stale = false
+        end
+        for _, key in ipairs(showing_keys) do
+            local colour = recoloured[key]
+            if colour then
+                -- The game changes a panel's or a text's colour when the mouse comes over it or
+                -- leaves, so the ones near the mouse are looked at after every update.
+                local was_near = colour.near_mouse
+                colour.near_mouse = is_near_mouse(colour, mouse_x, mouse_y)
+                local is_its_turn = not is_quiet or (update_number + colour.turn) % quiet_check_interval == 0
+                if (is_its_turn or colour.near_mouse or was_near) and check(key, colour) then
+                    checked = checked + 1
                 end
             end
         end
@@ -239,6 +334,8 @@ function recolourer.start(groups, scheme_colours, on_new_colour)
     colours = scheme_colours
     on_new = on_new_colour
     recoloured = {}
+    showing_keys = {}
+    showing_keys_are_stale = true
     rectangle_colours, text_colours = {}, {}
     plugin_panel_colours = {}
 end
@@ -252,6 +349,8 @@ function recolourer.stop()
         end
     end
     recoloured = {}
+    showing_keys = {}
+    showing_keys_are_stale = true
 end
 
 return recolourer
