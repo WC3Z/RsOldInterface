@@ -71,7 +71,8 @@ sprite_groups.all = {
     },
     {
         name = "buttons",
-        patterns = { "^RS3_BTN_", "^RS3_BUTTON_CLOSE_", "^RS3_BUTTON_LOGOUT_", "^BUTTON_30PX_[A-Z]+$" },
+        -- STATS_BACKGROUND_BUTTON_*: the cells behind each skill in the Skills window.
+        patterns = { "^RS3_BTN_", "^RS3_BUTTON_CLOSE_", "^RS3_BUTTON_LOGOUT_", "^BUTTON_30PX_[A-Z]+$", "^STATS_BACKGROUND_BUTTON_" },
         changes_often = true,
     },
     {
@@ -229,7 +230,7 @@ sprite_groups.colour_parts = {
             "^RS3_CHILD_CLOSE_BUTTON_",
         },
     },
-    { key = "buttons", label = "Buttons", patterns = { "^RS3_BTN_", "^RS3_BUTTON_", "^BUTTON_" } },
+    { key = "buttons", label = "Buttons", patterns = { "^RS3_BTN_", "^RS3_BUTTON_", "^BUTTON_", "^STATS_BACKGROUND_BUTTON_" } },
 }
 
 -- Sprites that keep their own colours in every colour scheme: a small picture in several colours,

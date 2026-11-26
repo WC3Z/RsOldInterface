@@ -262,10 +262,10 @@ end
 
 -- What the benchmark runs on.
 ---@param parts table<string, SwappedPart>
----@param visit fun(component: ui.Component, walk_kind: WalkKind)
+---@param visit fun(component: ui.Component, component_type: string, walk_kind: WalkKind)
 ---@return BenchmarkSubjects
 local function benchmark_subjects(parts, visit)
-    local subjects = { visit = function (component) visit(component, "now") end }
+    local subjects = { visit = function (component, component_type) visit(component, component_type or component.type, "now") end }
     for _, part in pairs(parts) do
         if part.field == component_fields.on_component and part.visible then
             if part.category_id == component_fields.static_category_id then
@@ -283,7 +283,7 @@ end
 ---@param event DrawEventPayload?
 ---@param update integer
 ---@param parts table<string, SwappedPart>
----@param visit fun(component: ui.Component, walk_kind: WalkKind)
+---@param visit fun(component: ui.Component, component_type: string, walk_kind: WalkKind)
 function events.frame(event, update, parts, visit)
     stats.frames = stats.frames + 1
     if activity_log.enabled and watch and update - stats_logged_at >= stats_interval then

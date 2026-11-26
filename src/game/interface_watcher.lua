@@ -175,7 +175,7 @@ end
 
 ---@class InterfaceWatch
 ---@field subscription_name string
----@field visit_as table<WalkKind, fun(component: ui.Component)> The caller's visit for each kind of walk.
+---@field visit_as table<WalkKind, fun(component: ui.Component, component_type: string)> The caller's visit for each kind of walk.
 ---@field update_number integer
 ---@field busy_until integer The update until which things count as happening (see showing_components_per_update).
 ---@field no_warm_until integer The update until which nothing stays warm (see most_shown_at_once_to_stay_warm).
@@ -747,9 +747,9 @@ end
 ---@param watch InterfaceWatch
 local function continue_background_walk(watch)
     local looked_up = 0
-    local function visit(component)
+    local function visit(component, component_type)
         looked_up = looked_up + 1
-        watch.visit_as.background(component)
+        watch.visit_as.background(component, component_type)
     end
     local started_walks = 0
     local budget = interface_watcher.is_busy(watch) and background_components_per_update or background_components_per_quiet_update
@@ -811,17 +811,17 @@ end
 
 -- Starts counting the game's updates. Nothing is looked at until before_frame is called.
 ---@param subscription_name string
----@param visit fun(component: ui.Component, walk_kind: WalkKind) Called for each component a walk comes to.
+---@param visit fun(component: ui.Component, component_type: string, walk_kind: WalkKind) Called for each component a walk comes to, with its type (which the walk has read already).
 ---@return InterfaceWatch
 function interface_watcher.start(subscription_name, visit)
     ---@type InterfaceWatch
     local watch = {
         subscription_name = subscription_name,
         visit_as = {
-            now = function (component) visit(component, "now") end,
-            warm = function (component) visit(component, "warm") end,
-            pass = function (component) visit(component, "pass") end,
-            background = function (component) visit(component, "background") end,
+            now = function (component, component_type) visit(component, component_type, "now") end,
+            warm = function (component, component_type) visit(component, component_type, "warm") end,
+            pass = function (component, component_type) visit(component, component_type, "pass") end,
+            background = function (component, component_type) visit(component, component_type, "background") end,
         },
         update_number = 0,
         busy_until = 150,

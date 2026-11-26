@@ -38,6 +38,7 @@ local skin_coloured_fields = {
 ---@field right number?
 ---@field bottom number?
 ---@field near_mouse boolean Whether the mouse was near it at the last update.
+---@field checks_since_place integer How many times it was looked at since its place was last read.
 
 -- Hidden recoloured colours are only checked every this many updates: they can't flash.
 local hidden_check_interval = 10
@@ -45,6 +46,7 @@ local hidden_check_interval = 10
 -- are checked every few updates, each in its own turn, and hidden ones more rarely still.
 local quiet_check_interval = 4
 local near_mouse_margin = 12
+local checks_between_places = 4
 local quiet_hidden_check_interval = 40
 -- How many colours were recoloured for the first time, to give each its turn.
 local colours_made = 0
@@ -151,12 +153,34 @@ local function write_colour(component, field, rgb)
     return holder ~= nil and component_fields.write_rgb(holder, field, rgb)
 end
 
+-- Notes where a recoloured component is on screen, for telling later whether the mouse is near it.
+---@param colour RecolouredColour
+---@param component ui.Component
+local function note_place(colour, component)
+    local position = component.xyGlobal
+    colour.left, colour.top = position.x, position.y
+    colour.right, colour.bottom = position.x + component.width, position.y + component.height
+end
+
+---@param colour RecolouredColour
+---@param mouse_x number?
+---@param mouse_y number?
+---@return boolean
+local function is_near_mouse(colour, mouse_x, mouse_y)
+    if mouse_x == nil or mouse_y == nil or colour.left == nil then
+        return false
+    end
+    return mouse_x >= colour.left - near_mouse_margin and mouse_x <= colour.right + near_mouse_margin
+        and mouse_y >= colour.top - near_mouse_margin and mouse_y <= colour.bottom + near_mouse_margin
+end
+
 -- Gives a component's skin colour the look's, if it has one. Called for every component walked,
 -- so it does as little as it can for the many with nothing to change.
 ---@param component ui.Component
+---@param component_type string The component's type, which the walk has read already.
 ---@param walk_kind WalkKind
-function recolourer.recolour(component, walk_kind)
-    local coloured = skin_coloured_fields[component.type]
+function recolourer.recolour(component, component_type, walk_kind)
+    local coloured = skin_coloured_fields[component_type]
     if coloured == nil or not swapped_groups[coloured.group] then
         return
     end
@@ -202,6 +226,7 @@ function recolourer.recolour(component, walk_kind)
         is_text = coloured.is_text,
         turn = known and known.turn or colours_made,
         near_mouse = false,
+        checks_since_place = 0,
     }
     if is_showing then
         pcall(note_place, recoloured[key], component)
@@ -221,27 +246,6 @@ local function find(colour)
     return nil
 end
 
--- Notes where a recoloured component is on screen, for telling later whether the mouse is near it.
----@param colour RecolouredColour
----@param component ui.Component
-local function note_place(colour, component)
-    local position = component.xyGlobal
-    colour.left, colour.top = position.x, position.y
-    colour.right, colour.bottom = position.x + component.width, position.y + component.height
-end
-
----@param colour RecolouredColour
----@param mouse_x number?
----@param mouse_y number?
----@return boolean
-local function is_near_mouse(colour, mouse_x, mouse_y)
-    if mouse_x == nil or mouse_y == nil or colour.left == nil then
-        return false
-    end
-    return mouse_x >= colour.left - near_mouse_margin and mouse_x <= colour.right + near_mouse_margin
-        and mouse_y >= colour.top - near_mouse_margin and mouse_y <= colour.bottom + near_mouse_margin
-end
-
 -- Gives a recoloured colour the look's colour again if the game has set its own since, and forgets
 -- it if its component is gone.
 ---@param key string
@@ -254,7 +258,12 @@ local function check(key, colour)
         return false
     end
     colour.visible = component.visibleGlobal
-    if colour.visible then
+    -- Where it is now only matters once the mouse comes near, and reading it is several reads from
+    -- the game: every time for what's near the mouse, every few checks for the rest.
+    colour.checks_since_place = colour.checks_since_place + 1
+    local place_is_due = colour.left == nil or colour.near_mouse or colour.checks_since_place >= checks_between_places
+    if colour.visible and place_is_due then
+        colour.checks_since_place = 0
         pcall(note_place, colour, component)
     end
     local game_rgb = read_colour(component, colour.field)

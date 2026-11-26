@@ -15,35 +15,39 @@ local collection_types = {
     [ui.ComponentType.GROUP_BOX] = true,
 }
 
--- The children the game created while running, like list rows, and theirs in turn. With a limit,
--- it stops once that many were visited: a list can hold thousands (the Bank's items), which is too
--- much for one frame.
----@param component ui.Component
----@param callback fun(component: ui.Component)
+-- Makes the function that visits the children the game created while running in a component,
+-- like list rows, and theirs in turn: for a collection's IterateDynamicComponents. Made once for a
+-- whole walk. A component's type is read once here and handed to the callback, which needs it too:
+-- every read from the game costs time.
+-- With a limit, it stops once that many were visited: a list can hold thousands (the Bank's
+-- items), which is too much for one frame.
+---@param callback fun(component: ui.Component, component_type: string)
 ---@param limit { left: integer }? How many more may be visited; counted down.
-local function each_dynamic_child(component, callback, limit)
-    if not collection_types[component.type] then
-        return
-    end
-    ---@cast component ui.ComponentCollection
-    component:IterateDynamicComponents(function (child)
+---@return fun(child: ui.Component): boolean
+local function visitor_of_created(callback, limit)
+    local function visit_created(child)
         if limit then
             if limit.left <= 0 then
                 return true
             end
             limit.left = limit.left - 1
         end
-        callback(child)
-        each_dynamic_child(child, callback, limit)
+        local child_type = child.type
+        callback(child, child_type)
+        if collection_types[child_type] then
+            ---@cast child ui.ComponentCollection
+            child:IterateDynamicComponents(visit_created)
+        end
         return false
-    end)
+    end
+    return visit_created
 end
 
 -- Visits one static component and the components the game created inside it while running.
 -- With visible_only, a hidden component is skipped along with everything inside it.
 ---@param interface_id integer
 ---@param static_id integer
----@param callback fun(component: ui.Component)
+---@param callback fun(component: ui.Component, component_type: string)
 ---@param visible_only boolean?
 ---@param most_created integer? Visit at most this many of the components the game created inside it.
 ---@return boolean found Whether the interface has a component with this static ID.
@@ -56,14 +60,17 @@ function interface_walker.visit_static(interface_id, static_id, callback, visibl
     if visible_only and not component.visibleGlobal then
         return true, false
     end
-    callback(component)
-    -- A table, not a number: each_dynamic_child calls itself for the children's children, and all
-    -- of those calls have to count down the same total.
-    local limit = nil
-    if most_created then
-        limit = { left = most_created }
+    local component_type = component.type
+    callback(component, component_type)
+    if collection_types[component_type] then
+        -- A table, not a number: the visiting of children's children counts down the same total.
+        local limit = nil
+        if most_created then
+            limit = { left = most_created }
+        end
+        ---@cast component ui.ComponentCollection
+        component:IterateDynamicComponents(visitor_of_created(callback, limit))
     end
-    each_dynamic_child(component, callback, limit)
     return true, true
 end
 
@@ -86,15 +93,15 @@ end
 -- Both the static components and the ones the game creates while running, like list rows. With
 -- visible_only, hidden components are skipped along with everything inside them.
 ---@param interface_id integer
----@param callback fun(component: ui.Component)
+---@param callback fun(component: ui.Component, component_type: string)
 ---@param visible_only boolean?
 ---@return integer # How many components were looked up.
 function interface_walker.each_component(interface_id, callback, visible_only)
     local looked_up = 0
     -- Defined in here so it can add to this call's count and reach this call's callback.
-    local function count_and_visit(component)
+    local function count_and_visit(component, component_type)
         looked_up = looked_up + 1
-        callback(component)
+        callback(component, component_type)
     end
     each_static_id(function (static_id)
         local found, visited = interface_walker.visit_static(interface_id, static_id, count_and_visit, visible_only)
@@ -193,7 +200,7 @@ end
 -- runs out. A hidden static component is skipped along with every static component inside it.
 ---@param interface_id integer
 ---@param tree StaticTree
----@param callback fun(component: ui.Component)
+---@param callback fun(component: ui.Component, component_type: string)
 ---@param index integer Where in tree.order to start (1 for the whole interface).
 ---@param budget number
 ---@return integer? next_index Where to carry on, or nil when the interface is done.
@@ -201,19 +208,24 @@ end
 function interface_walker.walk_showing(interface_id, tree, callback, index, budget)
     local order, after = tree.order, tree.after
     local looked_up = 0
-    -- For the components the game created, which each_dynamic_child looks up.
-    local function count_and_visit_created(component)
+    -- For the components the game created, which are looked up by the game handing them over.
+    local function count_and_visit_created(component, component_type)
         looked_up = looked_up + 1
-        callback(component)
+        callback(component, component_type)
     end
+    local visit_created = visitor_of_created(count_and_visit_created, nil)
     local count = #order
     while index <= count and looked_up < budget do
         -- A static component is looked up here, so it's counted here, shown or not.
         local component = ui.Interfaces:GetComponent(interface_id, order[index])
         looked_up = looked_up + 1
         if component and component.visibleGlobal then
-            callback(component)
-            each_dynamic_child(component, count_and_visit_created)
+            local component_type = component.type
+            callback(component, component_type)
+            if collection_types[component_type] then
+                ---@cast component ui.ComponentCollection
+                component:IterateDynamicComponents(visit_created)
+            end
             index = index + 1
         else
             index = after[index]

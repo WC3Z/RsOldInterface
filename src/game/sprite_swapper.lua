@@ -51,6 +51,7 @@ local runtime_image_id = component_fields.runtime_image_id
 ---@field right number?
 ---@field bottom number?
 ---@field near_mouse boolean Whether the mouse was near it at the last update.
+---@field checks_since_place integer How many times it was checked since its place was last read.
 ---@field turn integer Which of the updates it's checked in while the mouse is elsewhere.
 ---@field game_rgb integer? The game's own tint of the part, if the plugin tinted it.
 ---@field applied_rgb integer? The tint the plugin gave it: the game's with the colour scheme's on top.
@@ -107,6 +108,8 @@ local updates_between_checks_away_from_mouse = 8
 -- next.
 local around_mouse_margin = 160
 local updates_between_checks_around_mouse = 2
+-- How many checks of a part away from the mouse go by between readings of where it is.
+local checks_between_places = 4
 -- A window's frame, when nothing has arrived from the server and no key was pressed for a few
 -- updates (see interface_watcher's alert_updates).
 local updates_between_checks_of_frames_when_quiet = 2
@@ -326,6 +329,7 @@ local function swap_part(state, component, field, walk_kind)
         game_rgb = game_rgb,
         applied_rgb = applied_rgb,
         near_mouse = false,
+        checks_since_place = 0,
         turn = known and known.turn or state.parts_made,
     }
     if look.changes_often then
@@ -339,8 +343,9 @@ end
 -- component of every loaded window several times a second, so it does as little as it can for the
 -- many that aren't changed.
 ---@param component ui.Component
+---@param component_type string The component's type, which the walk has read already.
 ---@param walk_kind WalkKind
-local function visit(component, walk_kind)
+local function visit(component, component_type, walk_kind)
     local state = swapping
     if state == nil then
         return
@@ -348,8 +353,8 @@ local function visit(component, walk_kind)
     if events.enabled then
         events.visited(component)
     end
-    recolourer.recolour(component, walk_kind)
-    local fields = sprite_fields[component.type]
+    recolourer.recolour(component, component_type, walk_kind)
+    local fields = sprite_fields[component_type]
     if fields then
         for _, field in ipairs(fields) do
             swap_part(state, component, field, walk_kind)
@@ -357,25 +362,27 @@ local function visit(component, walk_kind)
     end
 end
 
--- What holds a swapped part's sprite, and its component, if they're still there.
+-- What holds a swapped part's sprite, its component, and the sprite's ID as it is now, if they're
+-- still there.
 ---@param part SwappedPart
----@return (ui.Component|userdata|table)?, ui.Component?
+---@return (ui.Component|userdata|table)?, ui.Component?, integer?
 local function find(part)
     local component = component_fields.find(part)
     local fields = component and sprite_fields[component.type]
     if fields == nil then
-        return nil, nil
+        return nil, nil, nil
     end
     -- The game can reuse a component's IDs for another type of component, which has other fields.
     for _, field in ipairs(fields) do
         if field == part.field then
             local holder = component_fields.holder(component, field)
-            if holder and holder.spriteID ~= nil then
-                return holder, component
+            local sprite_id = holder and holder.spriteID
+            if sprite_id ~= nil then
+                return holder, component, sprite_id
             end
         end
     end
-    return nil, nil
+    return nil, nil, nil
 end
 
 -- A few parts draw an image that depends on more than their sprite, like a title plate's on the
@@ -408,7 +415,7 @@ end
 ---@param is_between_updates boolean Whether this is a frame between updates, where only hot parts are checked.
 local function swap_again_if_changed(state, key, part, is_between_updates)
     local watch = state.watch
-    local holder, component = find(part)
+    local holder, component, sprite_id = find(part)
     if holder == nil or component == nil then
         state.parts[key] = nil
         -- Parts the game created that are gone were likely built again under new IDs.
@@ -421,12 +428,19 @@ local function swap_again_if_changed(state, key, part, is_between_updates)
         return
     end
     part.visible = component.visibleGlobal
-    -- Windows get moved and lists scrolled: where the part is, is read again with each check.
+    -- Windows get moved and lists scrolled, so where the part is has to be read again. It only
+    -- matters once the mouse comes near, and it's several reads from the game: every check for
+    -- what's around the mouse, every few checks for the rest.
     if part.visible and part.changes_often then
-        pcall(note_place, part, component)
+        part.checks_since_place = part.checks_since_place + 1
+        local place_is_due = part.left == nil or part.checks_since_place >= checks_between_places
+            or is_near_mouse(state, part, around_mouse_margin)
+        if place_is_due then
+            part.checks_since_place = 0
+            pcall(note_place, part, component)
+        end
     end
 
-    local sprite_id = holder.spriteID
     if sprite_id == runtime_image_id then
         draw_changed_image(holder, component, part)
     end

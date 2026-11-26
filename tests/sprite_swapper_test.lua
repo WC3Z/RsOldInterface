@@ -899,6 +899,28 @@ collectgarbage = collect_before
 fresh_swapper.stop()
 assert(steps_asked_for == 20, "one step of collecting per update, not " .. steps_asked_for)
 
+-- a component's type is read from the game once for each time a walk comes to it, not once for
+-- every piece of code that wants to know it
+local type_reads = 0
+local plain_layer = setmetatable({ interfaceID = 32, staticID = 0, categoryID = -1, dynamicID = -1, visibleGlobal = true, children = {} }, {
+  __index = function (_, field)
+    if field == "type" then
+      type_reads = type_reads + 1
+      return ui.ComponentType.LAYER
+    end
+    return nil
+  end,
+})
+function plain_layer:IterateDynamicComponents(callback) for _, child in ipairs(self.children) do callback(child) end end
+fresh_swapper.start(groups.names(all_on))
+tick(5)
+load(32, { [0] = plain_layer })
+type_reads = 0
+logic() draw()
+assert(type_reads >= 1 and type_reads <= 2, "read once per walk that came to it in the update it loaded, not " .. type_reads)
+fresh_swapper.stop()
+loaded[32] = nil
+
 -- the player's own text colours replace the old look's, in any scheme
 local heading = { interfaceID = 19, staticID = 0, categoryID = -1, dynamicID = -1, type = ui.ComponentType.LABEL, visibleGlobal = true, rgb = 0xF0BE79, content = "Heading" }
 local body = { interfaceID = 19, staticID = 1, categoryID = -1, dynamicID = -1, type = ui.ComponentType.LABEL, visibleGlobal = true, rgb = 0xE3D7CF, content = "Body" }
