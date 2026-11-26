@@ -57,7 +57,13 @@ function interface_walker.visit_static(interface_id, static_id, callback, visibl
         return true, false
     end
     callback(component)
-    each_dynamic_child(component, callback, most_created and { left = most_created } or nil)
+    -- A table, not a number: each_dynamic_child calls itself for the children's children, and all
+    -- of those calls have to count down the same total.
+    local limit = nil
+    if most_created then
+        limit = { left = most_created }
+    end
+    each_dynamic_child(component, callback, limit)
     return true, true
 end
 
@@ -85,13 +91,19 @@ end
 ---@return integer # How many components were looked up.
 function interface_walker.each_component(interface_id, callback, visible_only)
     local looked_up = 0
+    -- Defined in here so it can add to this call's count and reach this call's callback.
     local function count_and_visit(component)
         looked_up = looked_up + 1
         callback(component)
     end
     each_static_id(function (static_id)
-        looked_up = looked_up + 1
-        return (interface_walker.visit_static(interface_id, static_id, count_and_visit, visible_only))
+        local found, visited = interface_walker.visit_static(interface_id, static_id, count_and_visit, visible_only)
+        -- A visited component was counted by count_and_visit; a missing or hidden one was still
+        -- looked up.
+        if not visited then
+            looked_up = looked_up + 1
+        end
+        return found
     end)
     return looked_up
 end
@@ -101,12 +113,16 @@ end
 ---@field after integer[] For each place in `order`, the place after that component and everything inside it.
 ---@field roots integer[] The static IDs with no parent in the interface.
 
+-- The static ID of the component a component sits inside, if that's in the same interface. An
+-- interface's outermost components sit inside a component of another interface (the one their
+-- interface is mounted in): for those this gives nil, which is how they're told to be roots.
 ---@param component ui.Component
----@param interface_id integer
----@return integer? # The static ID of the component's parent, if that's in the same interface.
-local function parent_static_id(component, interface_id)
+---@param own_interface_id integer The interface the component itself is in.
+---@return integer?
+local function parent_static_id(component, own_interface_id)
     local parent = component.parentStatic
-    if parent ~= nil and parent.interfaceID == interface_id then
+    local is_in_same_interface = parent ~= nil and parent.interfaceID == own_interface_id
+    if is_in_same_interface then
         return parent.staticID
     end
     return nil
@@ -185,17 +201,19 @@ end
 function interface_walker.walk_showing(interface_id, tree, callback, index, budget)
     local order, after = tree.order, tree.after
     local looked_up = 0
-    local function count_and_visit(component)
+    -- For the components the game created, which each_dynamic_child looks up.
+    local function count_and_visit_created(component)
         looked_up = looked_up + 1
         callback(component)
     end
     local count = #order
     while index <= count and looked_up < budget do
+        -- A static component is looked up here, so it's counted here, shown or not.
         local component = ui.Interfaces:GetComponent(interface_id, order[index])
         looked_up = looked_up + 1
         if component and component.visibleGlobal then
             callback(component)
-            each_dynamic_child(component, count_and_visit)
+            each_dynamic_child(component, count_and_visit_created)
             index = index + 1
         else
             index = after[index]
