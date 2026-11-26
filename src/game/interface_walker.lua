@@ -15,17 +15,26 @@ local collection_types = {
     [ui.ComponentType.GROUP_BOX] = true,
 }
 
--- The children the game created while running, like list rows, and theirs in turn.
+-- The children the game created while running, like list rows, and theirs in turn. With a limit,
+-- it stops once that many were visited: a list can hold thousands (the Bank's items), which is too
+-- much for one frame.
 ---@param component ui.Component
 ---@param callback fun(component: ui.Component)
-local function each_dynamic_child(component, callback)
+---@param limit { left: integer }? How many more may be visited; counted down.
+local function each_dynamic_child(component, callback, limit)
     if not collection_types[component.type] then
         return
     end
     ---@cast component ui.ComponentCollection
     component:IterateDynamicComponents(function (child)
+        if limit then
+            if limit.left <= 0 then
+                return true
+            end
+            limit.left = limit.left - 1
+        end
         callback(child)
-        each_dynamic_child(child, callback)
+        each_dynamic_child(child, callback, limit)
         return false
     end)
 end
@@ -36,9 +45,10 @@ end
 ---@param static_id integer
 ---@param callback fun(component: ui.Component)
 ---@param visible_only boolean?
+---@param most_created integer? Visit at most this many of the components the game created inside it.
 ---@return boolean found Whether the interface has a component with this static ID.
 ---@return boolean visited Whether it was visited (it's visible, or visible_only wasn't asked).
-function interface_walker.visit_static(interface_id, static_id, callback, visible_only)
+function interface_walker.visit_static(interface_id, static_id, callback, visible_only, most_created)
     local component = ui.Interfaces:GetComponent(interface_id, static_id)
     if not component then
         return false, false
@@ -47,7 +57,7 @@ function interface_walker.visit_static(interface_id, static_id, callback, visibl
         return true, false
     end
     callback(component)
-    each_dynamic_child(component, callback)
+    each_dynamic_child(component, callback, most_created and { left = most_created } or nil)
     return true, true
 end
 

@@ -40,6 +40,7 @@ local runtime_image_id = component_fields.runtime_image_id
 ---@class SwappedPart : ComponentIds
 ---@field field string
 ---@field game_sprite_id integer The sprite the game gave it, which it gets back when the plugin stops.
+---@field changing_image_name string? The name of the image it draws, where that can change while the sprite stays the same (see SpriteLook.follows_title).
 ---@field visible boolean Whether it was showing when last looked at.
 ---@field changes_often boolean Whether the game changes it all the time, like a button's hover state.
 ---@field checked_while_hidden boolean Whether it's checked after every update even while hidden, like a big window's frame.
@@ -73,8 +74,16 @@ local white_rgb = 0xFFFFFF
 -- (see mark_in_use): the docked windows' tab bars.
 local interface_ids_in_use = game_ids.interface_ids({ "TOPLEVEL_V2_PARENTS_QUICKCHILDREN" })
 
+-- Whether a part is checked after every update, and not just in turns. None in an interface that
+-- isn't showing is: the update it shows in, they are again. (But for the interfaces whose parts
+-- say they're hidden while they show.)
+---@param watch InterfaceWatch
 ---@param part SwappedPart
-local function is_checked_every_update(part)
+local function is_checked_every_update(watch, part)
+    local interface_id = part.interface_id
+    if not interface_watcher.is_showing(watch, interface_id) and not interface_ids_in_use[interface_id] then
+        return false
+    end
     return part.checked_while_hidden or part.in_use or (part.visible and part.changes_often)
 end
 
@@ -144,7 +153,8 @@ local function swap_part(state, component, field, walk_kind)
         end
         return
     end
-    if not component_fields.set_sprite(holder, sprite_images.image_at(component, sprite_id, look)) then
+    local image, changing_image_name = sprite_images.image_at(component, sprite_id, look)
+    if not component_fields.set_sprite(holder, image) then
         return
     end
 
@@ -156,7 +166,7 @@ local function swap_part(state, component, field, walk_kind)
         -- did. It may be one the game sets every frame, and if it was only checked in turns, it's
         -- in use.
         state.hot_until[key] = state.watch.update_number + hot_updates
-        if not is_checked_every_update(known) then
+        if not is_checked_every_update(state.watch, known) then
             mark_in_use(state.parts, known.interface_id, known.static_id)
         end
     elseif is_showing then
@@ -176,6 +186,7 @@ local function swap_part(state, component, field, walk_kind)
         dynamic_id = component.dynamicID,
         field = field,
         game_sprite_id = sprite_id,
+        changing_image_name = changing_image_name,
         visible = is_showing,
         changes_often = look.changes_often,
         checked_while_hidden = look.checked_while_hidden,
@@ -228,6 +239,26 @@ local function find(part)
     return nil, nil
 end
 
+-- A few parts draw an image that depends on more than their sprite, like a title plate's on the
+-- window's title. For a showing one that still has the plugin's image, this draws the other image
+-- when what it depends on has changed.
+---@param holder ui.Component|userdata|table
+---@param component ui.Component
+---@param part SwappedPart
+local function draw_changed_image(holder, component, part)
+    if not part.visible then
+        return
+    end
+    local look = sprite_images.look_of(part.game_sprite_id)
+    if look == nil or not look.follows_title then
+        return
+    end
+    local image, changing_image_name = sprite_images.image_at(component, part.game_sprite_id, look)
+    if changing_image_name ~= part.changing_image_name and component_fields.set_sprite(holder, image) then
+        part.changing_image_name = changing_image_name
+    end
+end
+
 -- Swaps a part again if the game has given it a sprite since: the same one when it rebuilds it
 -- (like the tab bar when switching tabs), or another one when its state changes (like a button's
 -- hover sprite). Parts that are gone are forgotten; if their window opens again, the walk finds
@@ -253,9 +284,17 @@ local function swap_again_if_changed(state, key, part, is_between_updates)
     part.visible = component.visibleGlobal
 
     local sprite_id = holder.spriteID
+    if sprite_id == runtime_image_id then
+        draw_changed_image(holder, component, part)
+    end
     local look = sprite_id ~= runtime_image_id and sprite_images.look_of(sprite_id) or nil
-    if look and component_fields.set_sprite(holder, sprite_images.image_at(component, sprite_id, look)) then
-        local was_checked_every_update = is_checked_every_update(part)
+    local image, changing_image_name
+    if look then
+        image, changing_image_name = sprite_images.image_at(component, sprite_id, look)
+    end
+    if look and component_fields.set_sprite(holder, image) then
+        part.changing_image_name = changing_image_name
+        local was_checked_every_update = is_checked_every_update(state.watch, part)
         local was_hot = state.hot_until[key] ~= nil
         state.hot_until[key] = watch.update_number + hot_updates
         -- The same sprite again means the game rebuilt the component (a different one is just a
@@ -300,9 +339,13 @@ end
 
 ---@param state Swapping
 local function check_parts_checked_every_update(state)
+    local watch = state.watch
     local checked = 0
     for key, part in pairs(state.parts) do
-        if is_checked_every_update(part) then
+        if is_checked_every_update(watch, part) then
+            if events.enabled then
+                events.checked_every_update(part)
+            end
             swap_again_if_changed(state, key, part, false)
             checked = checked + 1
         end
@@ -319,17 +362,20 @@ local function check_some_in_turns(state)
     if state.in_turns_index > #state.in_turns then
         state.in_turns = {}
         for key, part in pairs(state.parts) do
-            if not is_checked_every_update(part) then
+            if not is_checked_every_update(state.watch, part) then
                 state.in_turns[#state.in_turns + 1] = key
             end
         end
         state.in_turns_index = 1
     end
     local last = math.min(state.in_turns_index + in_turns_per_update - 1, #state.in_turns)
+    if events.enabled then
+        events.count("parts checked in turns", last - state.in_turns_index + 1)
+    end
     for index = state.in_turns_index, last do
         local key = state.in_turns[index]
         local part = state.parts[key]
-        if part and not is_checked_every_update(part) then
+        if part and not is_checked_every_update(state.watch, part) then
             swap_again_if_changed(state, key, part, false)
         end
     end
@@ -350,18 +396,29 @@ local function before_frame(event)
     if events.enabled then
         events.frame(event, watch.update_number, state.parts, visit)
     end
+    -- The debug tools can leave a step out for a moment, to measure what it costs.
     if watch.update_number == state.checked_after_update then
-        check_hot_parts(state)
+        if not events.skips("hot checks") then
+            check_hot_parts(state)
+        end
         return
     end
     state.checked_after_update = watch.update_number
 
     interface_watcher.before_frame(watch)
-    check_parts_checked_every_update(state)
-    check_some_in_turns(state)
+    if not events.skips("every-update checks") then
+        check_parts_checked_every_update(state)
+    end
+    if not events.skips("in-turn checks") then
+        check_some_in_turns(state)
+    end
     -- After the checks: they point out where the game rebuilt things.
-    interface_watcher.walk_containers(watch)
-    recolourer.recolour_changed(watch.update_number)
+    if not events.skips("container walks") then
+        interface_watcher.walk_containers(watch)
+    end
+    if not events.skips("colour checks") then
+        recolourer.recolour_changed(watch.update_number)
+    end
     if events.enabled then
         events.checked(state.parts, recolourer.count())
     end
@@ -384,10 +441,10 @@ end
 -- Swaps the sprites in the given groups (names from sprite_groups).
 ---@param groups table<string, boolean>
 ---@param colours SchemeColours? What to draw the look in (see colour_scheme); the classic look if left out.
----@param textured_panels boolean? Whether the panels inside windows show the window's texture, as before 2019 (see sprite_images).
-function sprite_swapper.start(groups, colours, textured_panels)
+---@param window_look WindowLook? The player's choices for how windows are drawn (see sprite_images); the usual look if left out.
+function sprite_swapper.start(groups, colours, window_look)
     sprite_swapper.stop()
-    local drawn_colours = sprite_images.use(groups, colours or {}, textured_panels)
+    local drawn_colours = sprite_images.use(groups, colours or {}, window_look)
     local watch = interface_watcher.start(subscription_name, visit)
     recolourer.start(groups, drawn_colours, function (component, walk_kind)
         interface_watcher.found_new_part(watch, component.interfaceID, component.staticID,

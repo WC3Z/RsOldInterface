@@ -9,11 +9,19 @@ component_fields.runtime_image_id = -1
 -- created by the game while running.
 component_fields.static_category_id = -1
 
--- The fields holding each component type's sprites. A sprite component's own sprite is the empty
--- name; interactive components like buttons and dropdowns keep theirs in sprite data objects.
+-- Where each type of component keeps the sprites it draws.
+--
+-- A sprite component draws one sprite, and its ID is on the component itself (component.spriteID).
+-- An interactive component, like a button or a dropdown, draws one or more, each in a field of its
+-- own that holds an object with the sprite's ID (button.sprite.spriteID, or for a slider
+-- slider.thumbSprite.spriteID and slider.trackSprite.spriteID).
+--
+-- So this lists, for each type, the names of those fields. For "on the component itself", which
+-- has no field name, the name is on_component.
+component_fields.on_component = ""
 ---@type table<string, string[]>
 component_fields.sprite_fields = {
-    [ui.ComponentType.SPRITE] = { "" },
+    [ui.ComponentType.SPRITE] = { component_fields.on_component },
     [ui.ComponentType.BUTTON] = { "sprite" },
     [ui.ComponentType.CHECK] = { "sprite" },
     [ui.ComponentType.COMBO] = { "entrySprite", "buttonSprite", "headerSprite" },
@@ -37,13 +45,13 @@ local function set_field(object, field, value)
     object[field] = value
 end
 
--- What holds a sprite or a colour: the component itself for the empty field name, or the object
--- in the given field (a button's sprite data, or its text).
+-- What holds a sprite or a colour: the component itself for on_component, or the object in the
+-- given field (a button's sprite data, or its text).
 ---@param component ui.Component
 ---@param field string
 ---@return (ui.Component|userdata|table)?
 function component_fields.holder(component, field)
-    if field == "" then
+    if field == component_fields.on_component then
         return component
     end
     local found, holder = pcall(get_field, component, field)
@@ -67,7 +75,7 @@ end
 ---@param field string The field the holder was found in.
 ---@return integer?
 function component_fields.read_rgb(holder, field)
-    if field == "" then
+    if field == component_fields.on_component then
         local found, rgb = pcall(get_field, holder, "rgb")
         return found and rgb or nil
     end
@@ -81,7 +89,7 @@ end
 ---@param rgb integer
 ---@return boolean # Whether it took.
 function component_fields.write_rgb(holder, field, rgb)
-    if field == "" then
+    if field == component_fields.on_component then
         return (pcall(set_field, holder, "rgb", rgb))
     end
     local found, rgba = pcall(get_field, holder, "rgba")

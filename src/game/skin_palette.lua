@@ -89,7 +89,10 @@ local brightest_brown_red = 0xA0
 ---@param rgb integer
 ---@return integer?
 function skin_palette.old_panel_colour(rgb)
-    local red, green, blue = (rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF
+    -- The colour is 0xRRGGBB: shift a channel down to the lowest 8 bits, and keep only those.
+    local red = (rgb >> 16) & 0xFF
+    local green = (rgb >> 8) & 0xFF
+    local blue = rgb & 0xFF
     local warmth = red - blue
     if red < green or green < blue or warmth < least_warmth or warmth > most_warmth or red > brightest_brown_red then
         return nil

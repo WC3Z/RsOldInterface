@@ -1,8 +1,7 @@
 -- The colour schemes the old look can be drawn in. The classic scheme draws the old images as
--- they were. A scheme with a tint draws grey copies of them (resources/frames_tintable, made by
--- tools/frames/make_tintable.cjs) and has the game tint those: a tint multiplies each pixel's
--- colour, so only a grey image can become any colour. A scheme can also have images of its own,
--- drawn as they are in place of the old ones.
+-- they were. A scheme with a tint draws grey copies of them (resources/frames_tintable) and has
+-- the game tint those: a tint multiplies each pixel's colour, so only a grey image can become any
+-- colour. A scheme can also have images of its own, drawn as they are in place of the old ones.
 --
 -- A grey copy keeps each pixel's brightness (its strongest colour channel), and plain colours are
 -- changed the same way here, so panels match the frames around them.
@@ -34,11 +33,11 @@ colour_scheme.all = {
     { key = "teal", label = "Teal", tint = 0x4FE0D8 },
     { key = "steel", label = "Steel", tint = 0xD4DCE8 },
     {
-        -- DarkScape's interface (2015-16): its own versions of the old interface's pieces, made
-        -- by tools/frames/update_darkscape.sh from its last cache. It kept the main game's
-        -- buttons, controls and text colours, so those are drawn as in the classic scheme. The
-        -- pieces it had no version of (or built differently, like smaller windows' frames) are
-        -- tinted with colours fitted to its sprites, and so are plain panels.
+        -- DarkScape's interface (2015-16): its own versions of the old interface's pieces
+        -- (resources/frames_darkscape). It kept the main game's buttons, controls and text
+        -- colours, so those are drawn as in the classic scheme. The pieces it had no version of
+        -- (or built differently, like smaller windows' frames) are tinted with colours fitted to
+        -- its sprites, and so are plain panels.
         key = "darkscape",
         label = "DarkScape",
         image_set = "darkscape",
@@ -75,18 +74,36 @@ colour_scheme.default_body_text = 0xA6C7D6
 -- How much of the scheme's colour light text takes on (the rest stays white).
 local text_tint_strength = 0.4
 
+-- A colour is one number, 0xRRGGBB: two hex digits (8 bits, 0-255) each for red, green and blue.
+local red_shift, green_shift = 16, 8
+local one_channel = 0xFF
+
+-- Splits a colour into its red, green and blue. Shifting right moves the wanted channel to the
+-- lowest 8 bits (0x4FE0D8 >> 8 is 0x4FE0), and `& 0xFF` keeps only those 8 bits, dropping the
+-- channels still above it (0x4FE0 & 0xFF is 0xE0).
 ---@param rgb integer
 ---@return integer, integer, integer
 local function channels(rgb)
-    return (rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF
+    local red = (rgb >> red_shift) & one_channel
+    local green = (rgb >> green_shift) & one_channel
+    local blue = rgb & one_channel
+    return red, green, blue
 end
 
+---@param channel number
+---@return integer
+local function rounded(channel)
+    return math.floor(channel + 0.5)
+end
+
+-- Puts red, green and blue (0-255 each) back into one colour: shifting left moves each to its
+-- place, and `|` joins them, as no two share a bit.
 ---@param red number
 ---@param green number
 ---@param blue number
 ---@return integer
 local function colour(red, green, blue)
-    return (math.floor(red + 0.5) << 16) | (math.floor(green + 0.5) << 8) | math.floor(blue + 0.5)
+    return (rounded(red) << red_shift) | (rounded(green) << green_shift) | rounded(blue)
 end
 
 -- The tint to draw a scheme with, or nil for the classic scheme (and unknown ones).

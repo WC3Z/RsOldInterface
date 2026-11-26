@@ -231,7 +231,7 @@ print = function (text)
   printed_while_debugging = printed_while_debugging + 1
   if tostring(text):find("error") then errors[#errors + 1] = text end
 end
-events.enable({ profile = true, activity_log = true })
+events.enable({ profile = true, activity_log = true, benchmark = true })
 swapper.start(groups.names(all_on))
 tick(5)
 loaded[5][1].spriteID = 102
@@ -247,6 +247,57 @@ print = print_before_debugging
 assert(#errors == 0, "no errors with the debug tools on: " .. tostring(errors[1]))
 assert(printed_while_debugging > 20, "and they printed what happened")
 assert(loaded[5][1].spriteID == 102 and label.rgb == 0xF0BE79, "the swapping worked as usual meanwhile")
+
+-- measuring the cost: steps are left out in turns, the averages are printed after each round, and
+-- everything is swapped again afterwards
+profile.cost_phase_updates = 20
+profile.cost_starts_at_update = 5
+local cost_lines = {}
+print = function (text)
+  if tostring(text):find("cost after") then cost_lines[#cost_lines + 1] = text end
+  if tostring(text):find("error") then errors[#errors + 1] = text end
+end
+events.enable({ profile = true, cost = true })
+swapper.start(groups.names(all_on))
+local skipped_steps = {}
+for _ = 1, 1200 do
+  logic()
+  for _, step in ipairs({ "the pass", "colour checks", "hot checks" }) do
+    if events.skips(step) then skipped_steps[step] = true end
+  end
+  for _, handler in pairs(subs.Draw) do handler({ timeDeltaSecs = events.skips("all of it") and 0.008 or 0.010 }) end
+  for _, handler in pairs(subs.Draw) do handler({ timeDeltaSecs = 0.010 }) end
+end
+events.disable()
+print = print_before_debugging
+assert(#errors == 0, "no errors while measuring the cost: " .. tostring(errors[1]))
+assert(#cost_lines >= 2, "a line of costs after each round")
+assert(skipped_steps["the pass"] and skipped_steps["colour checks"] and skipped_steps["hot checks"], "each step was left out in turn")
+assert(cost_lines[#cost_lines]:find("all of it 1%.9%d"), "the cost of all of it from the shorter frames: " .. cost_lines[#cost_lines])
+assert(not events.skips("the pass"), "nothing is left out once the tools are off")
+loaded[5][1].spriteID = 102
+tick(3)
+assert(loaded[5][1].spriteID == -1, "swapped again after the measuring")
+swapper.stop()
+
+-- the layout listing prints where matching swapped sprites are, and the texts over them
+local layout_lines = {}
+print = function (text)
+  if tostring(text):find("layout: ") then layout_lines[#layout_lines + 1] = text end
+  if tostring(text):find("error") then errors[#errors + 1] = text end
+end
+loaded[5][1].xyGlobal, loaded[5][1].x, loaded[5][1].width, loaded[5][1].height = { x = 40, y = 100 }, 4, 76, 76
+label.xyGlobal, label.x, label.width, label.height = { x = 60, y = 120 }, 24, 90, 20
+events.enable({ layout = "^RS3_BTN_MAIN_NEUTRAL_" })
+swapper.start(groups.names(all_on))
+tick(160)
+swapper.stop()
+events.disable()
+print = print_before_debugging
+assert(#errors == 0, "no errors while listing the layout: " .. tostring(errors[1]))
+local all_layout = table.concat(layout_lines, "\n")
+assert(all_layout:find("at 40,100 size 76x76", 1, true), "the piece's place and size: " .. all_layout)
+assert(all_layout:find('LABEL "MANUAL SETUP" font', 1, true) and all_layout:find("at 60,120 size 90x20", 1, true), "and the text over it")
 
 -- the game reuses a button's IDs for a plain sprite component, and a part's sprite ID turns nil
 swapper.start(groups.names(all_on))
@@ -386,12 +437,11 @@ for round = 1, 4 do
 end
 swapper.stop()
 
--- a small window's red title plate is only drawn right after the title corner; where the game
--- draws that piece on its own behind a centred title, it looks like the rest of the title bar
+-- the same sprite is drawn the same wherever it is in a small window's title bar: the bar has no
+-- title plate
 names[103] = "RS3_MODAL_WINDOW_1_TITLE_TILE"
 id.Sprite.RS3_MODAL_WINDOW_1_TITLE_TILE = 103
-Plugin.resources.frames.RS3_MODAL_WINDOW_1_TITLE_TILE = "img_plate"
-Plugin.resources.frames.RS3_MODAL_WINDOW_1_TOP_TILE = "img_title_bar"
+Plugin.resources.frames.RS3_MODAL_WINDOW_1_TITLE_TILE = "img_title_bar"
 package.loaded["src/game/sprite_swapper"] = nil
 local fresh_swapper = require("src/game/sprite_swapper")
 local after_corner = sprite(17, 0, 103, true); after_corner.x = 28
@@ -399,8 +449,7 @@ local behind_title = sprite(17, 1, 103, true); behind_title.x = 125
 load(17, { [0] = after_corner, [1] = behind_title })
 fresh_swapper.start(groups.names(all_on))
 tick(5)
-assert(after_corner.image == "img_plate", "the plate after the title corner")
-assert(behind_title.image == "img_title_bar", "no plate behind a centred title")
+assert(after_corner.image == "img_title_bar" and behind_title.image == "img_title_bar", "the plain bar in both places")
 fresh_swapper.stop()
 
 -- a colour scheme: grey copies are drawn and tinted, over the tint the game gave the part, and
@@ -526,7 +575,7 @@ load(22, loaded[22])
 fresh_swapper.start(groups.names(all_on))
 tick(5)
 assert(plugin_texture.image == "img_panel", "another plugin's panel texture is drawn as a plain panel")
-fresh_swapper.start(groups.names(all_on), { tint = 0xFF0000 }, true)
+fresh_swapper.start(groups.names(all_on), { tint = 0xFF0000 }, { textured_panels = true })
 tick(5)
 assert(plugin_texture.image == "grey_panel" and plugin_texture.rgb == 0xFF0000, "tinted with the scheme, and not see-through with textured panels")
 assert(panel.image == "img_see_through" and panel.rgb == 0xFFFFFF, "with textured panels it's see-through and untinted, in a tinted scheme too")
@@ -591,6 +640,100 @@ tick(5)
 assert(close_button.image == "img_close" and close_button.rgb == 0xFFFFFF, "the close button is drawn in its own colours")
 fresh_swapper.stop()
 Plugin.resources.frames_tintable = nil
+
+-- a big window's title plate: the end piece and the bar are drawn with the plate as much longer
+-- as the title needs, in steps; the usual pieces without a title; no red at all when turned off
+names[110], names[111], names[112] = "RS3_PARENT_BANNER_SWORD_LEFT", "RS3_PARENT_BANNER_SWORD_RIGHT", "RS3_PARENT_BANNER_BAR_TILE"
+for sprite_id = 110, 112 do
+  id.Sprite[names[sprite_id]] = sprite_id
+  Plugin.resources.frames[names[sprite_id]] = "img_" .. names[sprite_id]
+end
+for _, image in ipairs({ "RS3_PARENT_BANNER_SWORD_RIGHT_LONGER_96", "RS3_PARENT_BANNER_BAR_TILE_LONGER_96",
+  "RS3_PARENT_BANNER_SWORD_RIGHT_LONGER_176", "RS3_PARENT_BANNER_BAR_TILE_LONGER_256",
+  "RS3_PARENT_BANNER_SWORD_LEFT_NO_PLATE", "RS3_PARENT_BANNER_SWORD_RIGHT_NO_PLATE" }) do
+  Plugin.resources.frames[image] = "img_" .. image
+end
+local pixels_per_letter = 10
+config.Font = { FromID = function (font_id)
+  return font_id == 60 and { GetStringWidth = function (_, text) return #text * pixels_per_letter end } or nil
+end }
+local banner = { interfaceID = 25, staticID = 0, categoryID = -1, dynamicID = -1, type = ui.ComponentType.LAYER, visibleGlobal = true }
+function banner:IterateDynamicComponents(callback) for _, child in ipairs(self.children) do callback(child) end end
+local function banner_piece(dynamic_id, sprite_id)
+  local piece = sprite(25, 0, sprite_id, true)
+  piece.categoryID, piece.dynamicID, piece.parentStatic, piece.parent = 0, dynamic_id, banner, banner
+  return piece
+end
+local plate_start, plate_end, plate_bar = banner_piece(1, 110), banner_piece(5, 111), banner_piece(4, 112)
+local window_title = { interfaceID = 25, staticID = 0, categoryID = 0, dynamicID = 14, type = ui.ComponentType.LABEL, visibleGlobal = true,
+  rgb = 0x00FF00, x = 64, y = -4, content = "Plugin Hub", font = 60 }
+banner.children = { plate_start, plate_end, plate_bar, window_title }
+load(25, { [0] = banner })
+local function reset_banner()
+  plate_start.spriteID, plate_end.spriteID, plate_bar.spriteID = 110, 111, 112
+end
+package.loaded["src/game/sprite_swapper"] = nil
+fresh_swapper = require("src/game/sprite_swapper")
+fresh_swapper.start(groups.names(all_on))
+tick(5)
+-- The title ends at 64 + 100; the plate has to reach 8 past that, 91 further than its own end at 81.
+assert(plate_end.image == "img_RS3_PARENT_BANNER_SWORD_RIGHT_LONGER_96", "the end piece with the plate long enough for the title: " .. tostring(plate_end.image))
+assert(plate_bar.image == "img_RS3_PARENT_BANNER_BAR_TILE_LONGER_96", "and the bar that carries it on")
+assert(plate_start.image == "img_RS3_PARENT_BANNER_SWORD_LEFT", "the start piece as it is")
+-- another big window opens in the same frame: the game changes the title and leaves the sprites
+window_title.content = "A title much longer than any plate there is an image for"
+tick(2)
+assert(plate_end.image == "img_RS3_PARENT_BANNER_SWORD_RIGHT_LONGER_176", "a long title: the end piece is all plate")
+assert(plate_bar.image == "img_RS3_PARENT_BANNER_BAR_TILE_LONGER_256", "and the bar has the longest plate there is")
+window_title.content = ""
+tick(2)
+assert(plate_end.image == "img_RS3_PARENT_BANNER_SWORD_RIGHT" and plate_bar.image == "img_RS3_PARENT_BANNER_BAR_TILE", "without a title, the usual pieces")
+fresh_swapper.stop()
+reset_banner()
+window_title.content = "Plugin Hub"
+fresh_swapper.start(groups.names(all_on), nil, { title_plates = false })
+tick(5)
+assert(plate_start.image == "img_RS3_PARENT_BANNER_SWORD_LEFT_NO_PLATE" and plate_end.image == "img_RS3_PARENT_BANNER_SWORD_RIGHT_NO_PLATE", "plates turned off: the pieces without the red")
+assert(plate_bar.image == "img_RS3_PARENT_BANNER_BAR_TILE", "and the usual bar")
+fresh_swapper.stop()
+loaded[25] = nil
+
+load(26, { [0] = big_list })
+-- the slow walk over hidden content only visits so many of the parts the game created in one
+-- component at a time; the rest are found when the window shows
+local big_list = { interfaceID = 26, staticID = 0, categoryID = -1, dynamicID = -1, type = ui.ComponentType.LAYER, visibleGlobal = false, children = {} }
+local callbacks_made = 0
+function big_list:IterateDynamicComponents(callback)
+  for _, child in ipairs(self.children) do
+    callbacks_made = callbacks_made + 1
+    if callback(child) then return end
+  end
+end
+load(26, { [0] = big_list })
+fresh_swapper.start(groups.names(all_on))
+logic() draw()
+-- The game fills the list in while it's hidden.
+for index = 1, 3000 do
+  local row = sprite(26, 0, 101, false)
+  row.categoryID, row.dynamicID = 0, index
+  big_list.children[index] = row
+end
+callbacks_made = 0
+local most_callbacks_in_an_update = 0
+for _ = 1, 60 do
+  local before = callbacks_made
+  tick(1)
+  most_callbacks_in_an_update = math.max(most_callbacks_in_an_update, callbacks_made - before)
+end
+assert(big_list.children[1].spriteID == -1, "the first hidden rows are swapped by the slow walk")
+assert(big_list.children[3000].spriteID == 101, "the ones past the limit aren't")
+assert(most_callbacks_in_an_update < 1000, "and the slow walk never went through all of them in one go: " .. most_callbacks_in_an_update)
+big_list.visibleGlobal = true
+for _, row in ipairs(big_list.children) do row.visibleGlobal = true end
+tick(3)
+assert(big_list.children[3000].spriteID == -1, "all of them once the window shows")
+fresh_swapper.stop()
+loaded[26] = nil
 
 -- the player's own text colours replace the old look's, in any scheme
 local heading = { interfaceID = 19, staticID = 0, categoryID = -1, dynamicID = -1, type = ui.ComponentType.LABEL, visibleGlobal = true, rgb = 0xF0BE79, content = "Heading" }

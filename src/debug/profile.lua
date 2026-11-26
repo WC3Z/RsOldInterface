@@ -2,15 +2,23 @@
 -- faster. Prints:
 -- - every 200 updates, how much of each kind of work there was (the game's Lua has no clock to
 --   time it with);
--- - once, what each kind of game call costs (the benchmark: the game stutters for a few seconds);
+-- - once, with profile.runs_benchmark, what each kind of game call costs (the game stutters for a
+--   few seconds);
 -- - each interface that loads or shows;
 -- - parts only found by the slow regular walk while showing: those were drawn in the new look for
---   a while.
+--   a while;
+-- - frames that took much longer than the ones around them, with what the plugin did in them;
+-- - with profile.measures_cost, what each step of the plugin's work costs (see the cost section).
 local interface_walker = require("src/game/interface_walker")
 
 local profile = {}
 
 profile.enabled = false
+---@type "generational"|"steps"|nil
+profile.garbage_mode = nil
+profile.garbage_step_kb = 100
+-- The benchmark makes the game stutter for a few seconds, so it's only run when asked for.
+profile.runs_benchmark = false
 profile.benchmark_iterations = 100000
 profile.benchmark_at_update = 300
 local prefix = "[Old Interface] "
@@ -35,7 +43,23 @@ local current_update = 0
 
 ---@type table<integer, integer>
 local opened_at = {}
-local lines_left = { opened = 80, late = 30 }
+local lines_left = { opened = 80, late = 30, long_frame = 200 }
+-- What was counted since the last frame started: the plugin's work in that frame.
+---@type table<string, number>
+local frame_counts = {}
+
+-- Lua's memory when the last frame started, to tell whether a long frame was one where Lua freed
+-- a lot at once (a garbage collection), and how many long frames there were since the last report.
+local memory_kb_at_last_frame = 0
+local long_frames = 0
+local long_frames_freeing_memory = 0
+local freed_kb_that_counts = 2000
+
+---@return number # Lua's memory in KB, or 0 if it can't be told.
+local function memory_kb()
+    local found, kb = pcall(collectgarbage, "count")
+    return found and kb or 0
+end
 
 ---@param interface_id integer
 local function interface_name(interface_id)
@@ -57,6 +81,7 @@ end
 function profile.count(name, amount)
     if profile.enabled then
         counts[name] = (counts[name] or 0) + amount
+        frame_counts[name] = (frame_counts[name] or 0) + amount
     end
 end
 
@@ -80,8 +105,11 @@ local function report()
     local updates = math.max(1, current_update - reported_at)
     reported_at = current_update
     typical_frame_seconds = frames > 0 and frame_seconds / frames or 0
-    print(string.format("%sprofile at update %d: %.0f fps; per update: %s", prefix, current_update,
-        frame_seconds > 0 and frames / frame_seconds or 0, per_update(counts, updates, "%s %.1f")))
+    print(string.format("%sprofile at update %d: %.0f fps, Lua memory %.0f KB, %d long frames (%d while Lua freed memory); per update: %s",
+        prefix, current_update, frame_seconds > 0 and frames / frame_seconds or 0, memory_kb(), long_frames, long_frames_freeing_memory,
+        per_update(counts, updates, "%s %.1f")))
+    long_frames = 0
+    long_frames_freeing_memory = 0
     counts = {}
     frames = 0
     frame_seconds = 0
@@ -176,6 +204,159 @@ function profile.dump_container(interface_id, static_id)
     for _, line in ipairs(lines) do
         print(line)
     end
+end
+
+-- LONG FRAMES. A frame that took much longer than the ones around it is printed with what the
+-- plugin did in it. Ordinary numbers there mean the hitch was the game's own (like loading the
+-- map while running); a big number says which of the plugin's walks it was.
+local long_frame_seconds = 0.03
+local long_frame_factor = 2.5
+local recent_frame_seconds = 0
+
+---@param delta number How long the frame before this one took.
+local function report_long_frame(delta)
+    local is_long = recent_frame_seconds > 0 and delta > long_frame_seconds and delta > recent_frame_seconds * long_frame_factor
+    local memory_now = memory_kb()
+    local freed_kb = memory_kb_at_last_frame - memory_now
+    memory_kb_at_last_frame = memory_now
+    if is_long then
+        long_frames = long_frames + 1
+        if freed_kb >= freed_kb_that_counts then
+            long_frames_freeing_memory = long_frames_freeing_memory + 1
+        end
+        local names = {}
+        for name, amount in pairs(frame_counts) do
+            -- The totals ("... in all") are the same every frame.
+            if amount > 0 and not name:find(" in all$") then
+                names[#names + 1] = name
+            end
+        end
+        table.sort(names)
+        local texts = {}
+        for _, name in ipairs(names) do
+            texts[#texts + 1] = string.format("%s %d", name, frame_counts[name])
+        end
+        print_limited("long_frame", string.format("long frame: %.0f ms at update %d (usual %.0f ms), Lua memory %+.0f KB in it; the plugin's work in it: %s",
+            delta * 1000, current_update, recent_frame_seconds * 1000, -freed_kb, #texts > 0 and table.concat(texts, ", ") or "none"))
+    else
+        -- Long frames are left out of what's usual.
+        recent_frame_seconds = recent_frame_seconds == 0 and delta or recent_frame_seconds * 0.95 + delta * 0.05
+    end
+    frame_counts = {}
+end
+
+-- COST. The game's Lua has no clock, so a step's cost is measured by leaving it out for a couple
+-- of seconds and seeing how much shorter the frames get. Phases take turns: everything on, one
+-- step left out, everything on, the next step left out, and so on, each step compared with the
+-- phases before and after it. A round takes about a minute and the numbers are noisy, so the
+-- averages over all rounds are printed after each: let it run for a few minutes in one place.
+--
+-- - While a step is left out, the game's own look can show in places for a moment.
+-- - With the frame rate capped (or limited by the graphics card), the plugin's work fits in the
+--   time the game would have waited, and everything measures as costing nothing: that itself says
+--   the plugin isn't what limits the frame rate there.
+profile.measures_cost = false
+profile.cost_phase_updates = 100
+profile.cost_starts_at_update = 300
+local all_steps = "all of it"
+-- The names the plugin's code asks profile.skips about.
+local cost_steps = {
+    all_steps,
+    "finding loaded and shown interfaces",
+    "fresh and warm walks",
+    "the pass",
+    "the background walk",
+    "every-update checks",
+    "in-turn checks",
+    "container walks",
+    "colour checks",
+    "hot checks",
+}
+
+---@class CostPhase
+---@field step string? The step left out, or nil with everything on.
+---@field started_at integer
+---@field frames integer
+---@field seconds number
+
+---@type { index: integer, phase: CostPhase?, baseline_seconds: number?, pending: { step: string, frame_seconds: number, frames_per_update: number, before: number }?, sums: table<string, number>, rounds: integer, baseline_fps: number, without_fps: number }
+local cost = { index = 0, sums = {}, rounds = 0, baseline_fps = 0, without_fps = 0 }
+
+-- Whether a step of the plugin's work is left out right now, to measure what it costs.
+---@param step string One of cost_steps.
+---@return boolean
+function profile.skips(step)
+    local phase = cost.phase
+    return phase ~= nil and phase.step ~= nil and (phase.step == step or phase.step == all_steps)
+end
+
+local function print_costs()
+    local texts = {}
+    for _, step in ipairs(cost_steps) do
+        texts[#texts + 1] = string.format("%s %.2f", step, (cost.sums[step] or 0) / cost.rounds)
+    end
+    print(string.format("%scost after %d rounds, ms per update: %s (last round: %.0f fps with the plugin's work, %.0f without)",
+        prefix, cost.rounds, table.concat(texts, "; "), cost.baseline_fps, cost.without_fps))
+end
+
+-- Odd phases have everything on, even ones leave a step out.
+---@param index integer
+---@return string?
+local function step_of_phase(index)
+    return index % 2 == 0 and cost_steps[index // 2] or nil
+end
+
+---@param phase CostPhase
+local function finish_cost_phase(phase)
+    if phase.frames == 0 then
+        return
+    end
+    local frame_seconds_in_phase = phase.seconds / phase.frames
+    if phase.step then
+        cost.pending = {
+            step = phase.step,
+            frame_seconds = frame_seconds_in_phase,
+            frames_per_update = phase.frames / math.max(1, current_update - phase.started_at),
+            before = cost.baseline_seconds or frame_seconds_in_phase,
+        }
+        if phase.step == all_steps then
+            cost.without_fps = 1 / frame_seconds_in_phase
+        end
+        return
+    end
+    local pending = cost.pending
+    if pending then
+        local with_everything = (pending.before + frame_seconds_in_phase) / 2
+        local seconds_per_update = (with_everything - pending.frame_seconds) * pending.frames_per_update
+        cost.sums[pending.step] = (cost.sums[pending.step] or 0) + seconds_per_update * 1000
+        cost.pending = nil
+        if pending.step == cost_steps[#cost_steps] then
+            cost.rounds = cost.rounds + 1
+            print_costs()
+        end
+    end
+    cost.baseline_seconds = frame_seconds_in_phase
+    cost.baseline_fps = 1 / frame_seconds_in_phase
+end
+
+---@param delta number How long the frame before this one took.
+local function continue_cost_measuring(delta)
+    if current_update < profile.cost_starts_at_update then
+        return
+    end
+    local phase = cost.phase
+    if phase and current_update - phase.started_at < profile.cost_phase_updates then
+        phase.frames = phase.frames + 1
+        phase.seconds = phase.seconds + delta
+        return
+    end
+    if phase then
+        finish_cost_phase(phase)
+    end
+    -- After the last step's phase comes one more with everything on, which is also the next
+    -- round's first.
+    cost.index = cost.index >= #cost_steps * 2 + 1 and 2 or cost.index + 1
+    cost.phase = { step = step_of_phase(cost.index), started_at = current_update, frames = 0, seconds = 0 }
 end
 
 ---@class BenchmarkSubjects
@@ -338,7 +519,12 @@ function profile.frame(event, update_number, subjects)
     current_update = update_number
     local found, delta = pcall(function () return event.timeDeltaSecs end)
     delta = found and tonumber(delta) or 0
-    local benchmarking = not benchmark_done and update_number >= profile.benchmark_at_update
+    report_long_frame(delta)
+    if profile.measures_cost then
+        continue_cost_measuring(delta)
+    end
+    -- The benchmark's stutter would spoil the cost's numbers.
+    local benchmarking = profile.runs_benchmark and not profile.measures_cost and not benchmark_done and update_number >= profile.benchmark_at_update
     if benchmarking then
         continue_benchmark(delta, subjects)
         return
@@ -356,6 +542,29 @@ function profile.frame(event, update_number, subjects)
     end
 end
 
+-- GARBAGE COLLECTION. Every component the plugin looks at is a new Lua object that's thrown away
+-- again, tens of kilobytes an update, which Lua frees in bursts. To try whether freeing it another
+-- way gives fewer long frames:
+--   "generational"   Lua 5.4's mode for lots of short-lived objects
+--   "steps"          a small step of collecting after every update, so there's never much to free
+---@param mode "generational"|"steps"|nil
+function profile.collect_garbage_as(mode)
+    profile.garbage_mode = mode
+    if mode == "generational" then
+        local worked, problem = pcall(collectgarbage, "generational")
+        print(string.format("%sgarbage collection: generational %s", prefix, worked and "on" or "isn't available: " .. tostring(problem)))
+    elseif mode == "steps" then
+        print(prefix .. "garbage collection: a step after every update")
+    end
+end
+
+-- Called once after each update's work.
+function profile.after_update()
+    if profile.enabled and profile.garbage_mode == "steps" then
+        pcall(collectgarbage, "step", profile.garbage_step_kb)
+    end
+end
+
 function profile.enable()
     profile.enabled = true
     print(string.format("%sprofile: on, clock %s", prefix, clock and "available" or "not available"))
@@ -363,6 +572,8 @@ end
 
 function profile.disable()
     profile.enabled = false
+    profile.measures_cost = false
+    cost = { index = 0, sums = {}, rounds = 0, baseline_fps = 0, without_fps = 0 }
 end
 
 return profile

@@ -7,11 +7,20 @@
 --
 --   require("src/game/debug_tools").events.enable({ profile = true, activity_log = true })
 --
+-- With `cost = true` as well as `profile`, what each step of the plugin's work costs is measured
+-- by leaving it out in turns (see the cost section of src/debug/profile.lua).
 -- With `unstyled = true`, what's showing that the plugin doesn't restyle is listed every few
 -- seconds (see src/debug/unstyled.lua).
+--
+-- With `garbage = "generational"` or `garbage = "steps"` as well as `profile`, Lua frees its
+-- garbage another way, to try against long frames (see src/debug/profile.lua).
+--
+-- With `layout = "^RS3_PARENT_BANNER_"`, where the game draws the swapped sprites with matching
+-- names is printed, with the texts over them (see src/debug/layout.lua).
 local activity_log = require("src/debug/activity_log")
 local profile = require("src/debug/profile")
 local unstyled = require("src/debug/unstyled")
+local layout = require("src/debug/layout")
 local interface_walker = require("src/game/interface_walker")
 local component_fields = require("src/game/component_fields")
 local game_ids = require("src/game/game_ids")
@@ -32,6 +41,9 @@ local stats_logged_at = 0
 -- Whether what's unstyled is listed, and how many updates apart.
 local lists_unstyled = false
 local unstyled_interval = 150
+-- The pattern of the sprite names whose layout is printed, if any.
+---@type string?
+local layout_pattern = nil
 -- The update each interface last had a new swap logged in.
 ---@type table<integer, integer>
 local swap_logged_at = {}
@@ -47,19 +59,31 @@ local function is_closely_watched(interface_id)
     return watch ~= nil and watch.closely_watched[interface_id] ~= nil
 end
 
----@param tools { profile: boolean?, activity_log: boolean?, unstyled: boolean? }
+---@param tools { profile: boolean?, activity_log: boolean?, unstyled: boolean?, cost: boolean?, layout: string?, garbage: string?, benchmark: boolean? }
 function events.enable(tools)
     events.enabled = true
     lists_unstyled = tools.unstyled == true
+    layout_pattern = tools.layout
     activity_log.enabled = tools.activity_log == true
     if tools.profile then
         profile.enable()
+        profile.measures_cost = tools.cost == true
+        profile.collect_garbage_as(tools.garbage)
+        profile.runs_benchmark = tools.benchmark == true
     end
+end
+
+-- Whether a step of the plugin's work is left out right now, to measure what it costs.
+---@param step string
+---@return boolean
+function events.skips(step)
+    return profile.skips(step)
 end
 
 function events.disable()
     events.enabled = false
     lists_unstyled = false
+    layout_pattern = nil
     activity_log.enabled = false
     profile.disable()
 end
@@ -88,7 +112,7 @@ function events.visited(component)
         activity_log.rectangle(component)
     end
     local fields = component_fields.sprite_fields[component.type]
-    if fields and fields[1] ~= "" then
+    if fields and fields[1] ~= component_fields.on_component then
         local sprite_ids = {}
         for _, field in ipairs(fields) do
             local holder = component_fields.holder(component, field)
@@ -170,6 +194,14 @@ function events.swapped(component, key, sprite_id, was_known, walk_kind)
     end
 end
 
+-- A part is about to get its check after an update: counted by why it's checked that often.
+---@param part SwappedPart
+function events.checked_every_update(part)
+    local why = part.in_use and "in use" or part.visible and (part.changes_often and "showing, changes often" or "showing, a window's frame")
+        or "hidden, a window's frame"
+    profile.count("every update: " .. why, 1)
+end
+
 -- A swapped part's component is gone.
 ---@param key string
 ---@param part SwappedPart
@@ -234,7 +266,7 @@ end
 local function benchmark_subjects(parts, visit)
     local subjects = { visit = function (component) visit(component, "now") end }
     for _, part in pairs(parts) do
-        if part.field == "" and part.visible then
+        if part.field == component_fields.on_component and part.visible then
             if part.category_id == component_fields.static_category_id then
                 subjects.static = subjects.static or part
             else
@@ -272,6 +304,10 @@ function events.checked(parts, recoloured_count)
     if lists_unstyled and update_number() % unstyled_interval == 0 then
         unstyled.report(parts)
     end
+    if layout_pattern and update_number() % unstyled_interval == 0 then
+        layout.report(parts, layout_pattern)
+    end
+    profile.after_update()
     stats.checks = stats.checks + 1
     stats.swapped_parts = part_count
     stats.recoloured = recoloured_count

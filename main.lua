@@ -7,7 +7,7 @@ local settings_window = require("src/interface/settings_window")
 -- Starts again with the groups of the options that are on, in the chosen colour scheme (the game's
 -- own look comes back first).
 local function swap_what_is_on()
-    sprite_swapper.start(sprite_groups.names(settings.is_on), settings.colours(), settings.has_textured_panels())
+    sprite_swapper.start(sprite_groups.names(settings.is_on), settings.colours(), settings.window_look())
 end
 
 swap_what_is_on()

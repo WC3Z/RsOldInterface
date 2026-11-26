@@ -60,10 +60,19 @@ local interface_watcher = {}
 -- for long; what the others find may have been.
 ---@alias WalkKind "now"|"warm"|"pass"|"background"
 
--- The pass over everything showing: enough to get round in a fraction of a second.
+-- The pass over everything showing: enough to get round in a fraction of a second while things
+-- are happening (something loaded, showed, was rebuilt, or new parts were found), and a quarter
+-- of that once it's been quiet for a few seconds. Every lookup costs time and leaves garbage for
+-- Lua to free, and most of the time nothing changes.
 local showing_components_per_update = 600
+local showing_components_per_quiet_update = 150
+local busy_updates = 150
 -- The slow walk over everything.
-local background_components_per_update = 150
+local background_components_per_update = 50
+-- A component the game created thousands of parts in (the Bank's items, while it's closed) would
+-- be a frame's worth of work in one go for the slow walk: it only visits the first this many. The
+-- rest are found when the window shows.
+local most_created_in_background = 400
 -- The numbers below were tuned in game against what was found late and what the walks cost
 -- (about a microsecond a lookup), at about 50 updates a second.
 --
@@ -136,6 +145,7 @@ end
 ---@field subscription_name string
 ---@field visit_as table<WalkKind, fun(component: ui.Component)> The caller's visit for each kind of walk.
 ---@field update_number integer
+---@field busy_until integer The update until which things count as happening (see showing_components_per_update).
 ---@field is_started boolean Whether before_frame has run: until then, everything loaded is new.
 ---@field loaded table<integer, boolean> The loaded interfaces, and whether they were showing when last checked.
 ---@field trees table<integer, StaticTree>
@@ -181,6 +191,9 @@ local function check_showing(watch, interface_id)
         end
         was_showing[index] = root_showing
     end
+    if events.enabled then
+        events.count("roots checked for showing", checked)
+    end
     return showing, newly_showing
 end
 
@@ -191,10 +204,24 @@ local function mounted_in(component)
     return parent ~= nil and parent.interfaceID or nil
 end
 
+-- Something happened in the interfaces: more may follow, so the pass goes at full speed for a while.
+---@param watch InterfaceWatch
+local function stay_busy(watch)
+    watch.busy_until = watch.update_number + busy_updates
+end
+
+---@param watch InterfaceWatch
+---@param interface_id integer
+---@return boolean # Whether the interface was showing when last checked.
+function interface_watcher.is_showing(watch, interface_id)
+    return watch.loaded[interface_id] == true
+end
+
 ---@param watch InterfaceWatch
 ---@param interface_id integer
 ---@param reason string
 local function make_fresh(watch, interface_id, reason)
+    stay_busy(watch)
     if events.enabled and watch.closely_watched[interface_id] == nil then
         events.watching_closely(interface_id, reason)
     end
@@ -218,6 +245,7 @@ end
 ---@param is_created boolean Whether the game created the part while running.
 ---@param walk_kind WalkKind The walk that found it.
 function interface_watcher.found_new_part(watch, interface_id, static_id, is_created, walk_kind)
+    stay_busy(watch)
     local was_late = walk_kind ~= "now"
     -- The background walk goes over hidden parts too: what it finds says nothing about the rest.
     local found_while_showing = was_late and walk_kind ~= "background"
@@ -273,6 +301,7 @@ end
 ---@param interface_id integer
 ---@param static_id integer
 function interface_watcher.walk_container_soon(watch, interface_id, static_id)
+    stay_busy(watch)
     watch.containers[interface_id .. ":" .. static_id] = {
         interface_id = interface_id,
         static_id = static_id,
@@ -506,7 +535,11 @@ end
 
 ---@param watch InterfaceWatch
 local function continue_showing_pass(watch)
-    local budget = showing_components_per_update
+    local is_quiet = watch.update_number > watch.busy_until
+    local budget = is_quiet and showing_components_per_quiet_update or showing_components_per_update
+    if events.enabled then
+        events.count("quiet updates", is_quiet and 1 or 0)
+    end
     local started_passes = 0
     while budget > 0 do
         local interface_id = watch.pass_ids[watch.pass_index]
@@ -562,7 +595,7 @@ local function continue_background_walk(watch)
             watch.background_static_id = 0
             watch.background_missing_in_a_row = 0
         else
-            local found = interface_walker.visit_static(interface_id, watch.background_static_id, visit, false)
+            local found = interface_walker.visit_static(interface_id, watch.background_static_id, visit, false, most_created_in_background)
             if found then
                 watch.background_missing_in_a_row = 0
             else
@@ -587,10 +620,19 @@ end
 function interface_watcher.before_frame(watch)
     local is_start = not watch.is_started
     watch.is_started = true
-    find_loaded_and_shown(watch, is_start)
-    walk_fresh_and_warm(watch)
-    continue_showing_pass(watch)
-    continue_background_walk(watch)
+    -- The debug tools can leave a step out for a moment, to measure what it costs.
+    if is_start or not events.skips("finding loaded and shown interfaces") then
+        find_loaded_and_shown(watch, is_start)
+    end
+    if not events.skips("fresh and warm walks") then
+        walk_fresh_and_warm(watch)
+    end
+    if not events.skips("the pass") then
+        continue_showing_pass(watch)
+    end
+    if not events.skips("the background walk") then
+        continue_background_walk(watch)
+    end
 end
 
 -- Starts counting the game's updates. Nothing is looked at until before_frame is called.
@@ -608,6 +650,7 @@ function interface_watcher.start(subscription_name, visit)
             background = function (component) visit(component, "background") end,
         },
         update_number = 0,
+        busy_until = busy_updates,
         is_started = false,
         loaded = {},
         trees = {},

@@ -11,6 +11,7 @@ local own_text_colours_key = "own_text_colours"
 local heading_text_key = "heading_text"
 local body_text_key = "body_text"
 local textured_panels_key = "textured_panels"
+local title_plates_key = "title_plates"
 local window_x_key = "window_x"
 local window_y_key = "window_y"
 local window_width_key = "window_width"
@@ -46,6 +47,24 @@ end
 ---@param on boolean
 function settings.set_textured_panels(on)
     PersistentDB:SetBool(textured_panels_key, on)
+end
+
+-- Whether big windows' titles, like Settings', sit on a red plate as long as the title. On unless
+-- turned off.
+---@return boolean
+function settings.shows_title_plates()
+    return PersistentDB:GetBool(title_plates_key) ~= false
+end
+
+---@param on boolean
+function settings.set_title_plates(on)
+    PersistentDB:SetBool(title_plates_key, on)
+end
+
+-- The player's choices for how windows are drawn.
+---@return WindowLook
+function settings.window_look()
+    return { textured_panels = settings.has_textured_panels(), title_plates = settings.shows_title_plates() }
 end
 
 -- A saved text, or nil when nothing is saved under the key.

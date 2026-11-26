@@ -32,7 +32,7 @@ local function fake_page(record)
         AddTitle = function () end,
         AddText = function () end,
         AddCheckboxButton = function (_, items, options)
-            -- The parts' checkboxes come first, then the one for textured panels.
+            -- The parts' checkboxes come first, then the ones for how windows are drawn.
             local name = record.checkboxes == nil and "checkboxes" or "panel_checkbox"
             record[name] = { items = items, options = options }
         end,
@@ -114,6 +114,17 @@ assert(not settings.has_textured_panels() and not built.panel_checkbox.items[1].
 built.panel_checkbox.options.onChange(nil, {}, "textured_panels", true)
 assert(settings.has_textured_panels() and changes == 2, "turning textured panels on is saved, and the swapping starts again")
 built.panel_checkbox.options.onChange(nil, {}, "textured_panels", false)
+
+-- Big windows' titles sit on a red plate unless the player turns it off.
+assert(settings.shows_title_plates() and built.panel_checkbox.items[2].selected, "title plates when nothing is saved")
+assert(settings.window_look().title_plates == true and settings.window_look().textured_panels == false, "both are in the window look")
+local changes_before_plates = changes
+built.panel_checkbox.options.onChange(nil, {}, "title_plates", false)
+assert(not settings.shows_title_plates() and settings.window_look().title_plates == false, "turning the plates off is saved")
+assert(not settings.has_textured_panels(), "and leaves the panels as they were")
+built.panel_checkbox.options.onChange(nil, {}, "title_plates", true)
+assert(settings.shows_title_plates() and changes == changes_before_plates + 2, "and on again, the swapping starting again each time")
+changes = changes_before_plates
 
 -- Opening the window again builds it again, from the saved states.
 open()
