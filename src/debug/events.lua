@@ -13,8 +13,8 @@
 -- shows, is listed every few seconds (see src/debug/unstyled.lua): open a window, and what's new
 -- in it is printed.
 --
--- With `under_mouse = true`, holding the mouse still over something prints what's there (see
--- src/debug/under_mouse.lua).
+-- With `under_mouse = true`, pointing at something and pressing Control and Shift prints what's
+-- there (see src/debug/under_mouse.lua).
 --
 -- With `garbage = "generational"` as well as `profile`, Lua frees its garbage another way, to
 -- try against long frames (see src/debug/profile.lua).

@@ -1,22 +1,20 @@
--- DEBUG: prints what's under the mouse, to find out what one thing on screen is made of. Hold the
--- mouse still over it for a moment: every showing component whose box holds the mouse is printed,
--- smallest first, with its type, size, colour, sprite (and the sprite the game had, for one the
--- plugin swapped) or text.
+-- DEBUG: prints what's under the mouse, to find out what one thing on screen is made of. Point at
+-- it and press Control and Shift together: every showing component whose box holds the mouse is
+-- printed, smallest first, with its type, size, colour, sprite (and the sprite the game had, for
+-- one the plugin swapped) or text. (It used to print whenever the mouse rested, which during play
+-- was all the time.)
 local interface_walker = require("src/game/interface_walker")
 local component_fields = require("src/game/component_fields")
 local game_ids = require("src/game/game_ids")
-local type_name = require("src/debug/type_names")
+local component_types = require("src/debug/type_names")
 
 local under_mouse = {}
 
 local prefix = "[Old Interface] under the mouse: "
--- How many updates the mouse has to stay put before what's under it is printed.
-local still_updates = 40
 local most_lines = 14
 
-local last_x, last_y = nil, nil
-local updates_still = 0
-local printed_x, printed_y = nil, nil
+-- Whether the keys were held at the last update, to print once each time they're pressed.
+local were_keys_held = false
 
 ---@param interface_id integer
 ---@return string
@@ -43,7 +41,7 @@ end
 local function describe(component, parts)
     local component_type = component.type
     local key = interface_walker.component_key(component)
-    local text = string.format("%s %s %s size %dx%d", interface_name(component.interfaceID), key, type_name(component_type),
+    local text = string.format("%s %s %s size %.0fx%.0f", interface_name(component.interfaceID), key, component_types.name(component_type),
         component.width, component.height)
     if component_type == ui.ComponentType.RECTANGLE then
         return text .. string.format(" rectangle rgba %08X%s", component.rgba, component.fill and " filled" or " outline")
@@ -101,7 +99,7 @@ local function print_what_is_at(parts, interface_ids, x, y)
             local measured, area = pcall(area_holding, component, x, y)
             if measured and area then
                 local described, text = pcall(describe, component, parts)
-                found[#found + 1] = { area = area, text = described and text or "(couldn't be described)" }
+                found[#found + 1] = { area = area, text = described and text or ("(couldn't be described: " .. tostring(text) .. ")") }
             end
         end, true)
     end
@@ -112,28 +110,29 @@ local function print_what_is_at(parts, interface_ids, x, y)
     end
 end
 
--- Called after every update. Prints what's under the mouse once it has stayed put for a moment,
--- once for each place.
+---@return boolean
+local function are_keys_held()
+    return Keyboard.IsControlDown() and Keyboard.IsShiftDown()
+end
+
+-- Called after every update. Prints what's under the mouse when Control and Shift are pressed.
 ---@param parts table<string, SwappedPart>
 ---@param interface_ids integer[] The interfaces that are showing.
 function under_mouse.check(parts, interface_ids)
-    local found, x, y = pcall(function ()
+    local found, keys_held = pcall(are_keys_held)
+    keys_held = found and keys_held == true
+    local was_pressed = keys_held and not were_keys_held
+    were_keys_held = keys_held
+    if not was_pressed then
+        return
+    end
+    local found_mouse, x, y = pcall(function ()
         if not Mouse.IsAvailable() then
             return nil, nil
         end
         return Mouse.GetX(), Mouse.GetY()
     end)
-    if not found or x == nil or y == nil then
-        return
-    end
-    if x ~= last_x or y ~= last_y then
-        last_x, last_y = x, y
-        updates_still = 0
-        return
-    end
-    updates_still = updates_still + 1
-    if updates_still == still_updates and (x ~= printed_x or y ~= printed_y) then
-        printed_x, printed_y = x, y
+    if found_mouse and x ~= nil and y ~= nil then
         print_what_is_at(parts, interface_ids, x, y)
     end
 end

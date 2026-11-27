@@ -1,6 +1,6 @@
 -- DEBUG: lists what's showing that the plugin doesn't restyle, to find out what a window is made
--- of: plain rectangles and text whose colour isn't one of the skin's, and sprites the plugin has no
--- image for (or that draw another plugin's image). Goes through every interface that's showing.
+-- of: plain rectangles and text whose colour isn't one of the skin's, sprites the plugin has no
+-- image for (or that draw another plugin's image), and the sprites it did swap, by the game's name. Goes through every interface that's showing.
 -- Each kind is printed once for each interface it's in, with how many there are and where, so
 -- opening a window prints just what's new in it. What's showing when the listing starts (the HUD,
 -- mostly) is only noted, not printed: hundreds of lines nobody asked for, which used to fill the
@@ -10,7 +10,7 @@ local skin_palette = require("src/game/skin_palette")
 local component_fields = require("src/game/component_fields")
 local sprite_groups = require("src/game/sprite_groups")
 local game_ids = require("src/game/game_ids")
-local type_name = require("src/debug/type_names")
+local component_types = require("src/debug/type_names")
 
 local unstyled = {}
 
@@ -69,7 +69,7 @@ local function kind_of(component)
     if #kinds == 0 then
         return nil
     end
-    return string.format("%s %s rgba %08X", type_name(component.type), table.concat(kinds, " "), component.rgba or 0)
+    return string.format("%s %s rgba %08X", component_types.name(component.type), table.concat(kinds, " "), component.rgba or 0)
 end
 
 ---@param line string
@@ -94,14 +94,22 @@ function unstyled.report(parts, interface_ids)
         local order = {}
         interface_walker.each_component(interface_id, function (component)
             local key = interface_walker.component_key(component)
-            local is_swapped = false
+            -- What the plugin swapped is listed too, by the game's sprite: an old image can look
+            -- as new as the game's (gold edges were around well before the overhaul).
+            local swapped_from = {}
             for _, field in ipairs(component_fields.sprite_fields[component.type] or {}) do
-                if parts[key .. ":" .. field] then
-                    is_swapped = true
+                local part = parts[key .. ":" .. field]
+                if part then
+                    swapped_from[#swapped_from + 1] = game_ids.sprite_name(part.game_sprite_id) or tostring(part.game_sprite_id)
                 end
             end
-            local described, kind = pcall(kind_of, component)
-            if not is_swapped and described and kind and not printed[name .. " " .. kind] then
+            local described, kind
+            if #swapped_from > 0 then
+                described, kind = true, "swapped " .. table.concat(swapped_from, " ")
+            else
+                described, kind = pcall(kind_of, component)
+            end
+            if described and kind and not printed[name .. " " .. kind] then
                 local entry = found[kind]
                 if entry == nil then
                     entry = { count = 0, static_id = component.staticID, width = component.width or 0, height = component.height or 0 }

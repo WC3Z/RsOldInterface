@@ -28,6 +28,9 @@ sprite_groups.all = {
             "^RS3_PARENT_CONTENT_TILEABLE_TAB_%d+$",
             "^BANK_TABS_%d$",
             "^BANK_TABS_HORIZONTAL_%d$",
+            -- Big windows' side tabs (Hiscores, Hero's Achievements).
+            "^RS3_PARENT_SIDE_TAB_UNSELECTED",
+            "^RS3_PARENT_SIDE_TAB_CURRENT$",
         },
         changes_often = true,
     },
@@ -72,13 +75,17 @@ sprite_groups.all = {
     {
         name = "buttons",
         -- STATS_BACKGROUND_BUTTON_*: the cells behind each skill in the Skills window.
-        patterns = { "^RS3_BTN_", "^RS3_BUTTON_CLOSE_", "^RS3_BUTTON_LOGOUT_", "^BUTTON_30PX_[A-Z]+$", "^STATS_BACKGROUND_BUTTON_" },
+        -- AIF_RING_BTN_1_*: the round tab buttons of the tool belt. They looked the same before
+        -- the overhaul, and are swapped so colour schemes colour them too.
+        patterns = { "^RS3_BTN_", "^RS3_BUTTON_CLOSE_", "^RS3_BUTTON_LOGOUT_", "^BUTTON_30PX_[A-Z]+$", "^STATS_BACKGROUND_BUTTON_", "^AIF_RING_BTN_1_%d$" },
         changes_often = true,
     },
     {
         name = "rows",
         -- AIF_SKILL_SELECT_BTN_1_0/1: the rows of the skill guide (Hero, Skills tab), normal and hovered.
-        patterns = { "^RS3_CONTENT_CONTAINER_", "^RS3_CONTEXTUAL_INPUT_BOX_", "^AIF_SKILL_SELECT_BTN_1_[01]$" },
+        -- AIF_BRONZE_MOTTLED_BUTTON_*: the rows of the Minigames list (Adventures). They looked the
+        -- same before the overhaul, and are swapped so colour schemes colour them too.
+        patterns = { "^RS3_CONTENT_CONTAINER_", "^RS3_CONTEXTUAL_INPUT_BOX_", "^AIF_SKILL_SELECT_BTN_1_[01]$", "^AIF_BRONZE_MOTTLED_BUTTON_%d$" },
         changes_often = true,
     },
     {
@@ -90,6 +97,8 @@ sprite_groups.all = {
             "^BUTTON_CORNERED_[A-Z]+$",
             "^BUTTON_PANEL_DEFAULT$",
             "^BUTTON_PANEL_INACTIVE$",
+            "^BUTTON_SIDE_TAB_53X70$",
+            "^BACKGROUND_SIDE_TAB$",
             "^BUTTON_ACCORDION_%d+PX$",
             "^INPUT_SEARCHBOX_%d+PX$",
             "^INPUT_DEFAULT$",
@@ -199,12 +208,15 @@ sprite_groups.colour_parts = {
             "^RS3_PARENT_CONTENT_TILEABLE_TAB_%d+$",
             "^BANK_TABS_",
             "^RS3_BTN_CHILD_TAB_",
+            "^RS3_PARENT_SIDE_TAB_UNSELECTED",
+            "^RS3_PARENT_SIDE_TAB_CURRENT$",
+            "^BUTTON_SIDE_TAB_",
         },
     },
     {
         key = sprite_groups.panels_part,
         label = "Backgrounds",
-        patterns = { "^RS3_[A-Z_]*CONTENT_TILE$", "^RS3_CONTENT_FRAME_4$", "^RS3_PARENT_CONTENT_TAB_FRAME_4$", "^OLD_BACKGROUND_TEXTURE$" },
+        patterns = { "^RS3_[A-Z_]*CONTENT_TILE$", "^RS3_CONTENT_FRAME_4$", "^RS3_PARENT_CONTENT_TAB_FRAME_4$", "^OLD_BACKGROUND_TEXTURE$", "^BACKGROUND_SIDE_TAB$" },
     },
     { key = "dropdowns", label = "Dropdowns", patterns = { "^RS3_BTN_DROPDOWN", "^DROPDOWN_" } },
     {
@@ -217,7 +229,7 @@ sprite_groups.colour_parts = {
     {
         key = "rows",
         label = "List rows and input boxes",
-        patterns = { "^RS3_CONTENT_CONTAINER", "^RS3_CONTEXTUAL_INPUT_BOX", "^INPUT_", "^AIF_SKILL_SELECT_BTN_1_[01]$" },
+        patterns = { "^RS3_CONTENT_CONTAINER", "^RS3_CONTEXTUAL_INPUT_BOX", "^INPUT_", "^AIF_SKILL_SELECT_BTN_1_[01]$", "^AIF_BRONZE_MOTTLED_BUTTON_" },
     },
     {
         -- Before the buttons, whose patterns match these too.
@@ -231,7 +243,7 @@ sprite_groups.colour_parts = {
             "^RS3_CHILD_CLOSE_BUTTON_",
         },
     },
-    { key = "buttons", label = "Buttons", patterns = { "^RS3_BTN_", "^RS3_BUTTON_", "^BUTTON_", "^STATS_BACKGROUND_BUTTON_" } },
+    { key = "buttons", label = "Buttons", patterns = { "^RS3_BTN_", "^RS3_BUTTON_", "^BUTTON_", "^STATS_BACKGROUND_BUTTON_", "^AIF_RING_BTN_1_%d$" } },
 }
 
 -- Sprites that keep their own colours in every colour scheme: a small picture in several colours,

@@ -15,9 +15,13 @@ for _, name in ipairs(names) do
     end
 end
 
+local component_types = {}
+
 -- The name of a component type, or the value itself if it has none here.
 ---@param component_type any
 ---@return string
-return function (component_type)
+function component_types.name(component_type)
     return type_names[component_type] or tostring(component_type)
 end
+
+return component_types

@@ -291,14 +291,15 @@ names[108] = "RS3_BTN_SOMETHING_NEW"
 local odd_box = { interfaceID = 35, staticID = 1, categoryID = -1, dynamicID = -1, type = ui.ComponentType.RECTANGLE, visibleGlobal = true,
   rgb = 0x123456, rgba = 0x123456FF, fill = true, width = 60, height = 27 }
 local new_button = sprite(35, 2, 108, true)
-load(35, { [0] = sprite(35, 0, 999, true), [1] = odd_box, [2] = new_button })
+local swapped_button = sprite(35, 3, 101, true)
+load(35, { [0] = sprite(35, 0, 999, true), [1] = odd_box, [2] = new_button, [3] = swapped_button })
 -- Switched on after the swapping started, as main.lua does. What shows at the start is only
 -- noted; a window that opens after is listed.
 loaded[35] = nil
 swapper.start(groups.names(all_on))
 events.enable({ unstyled = true })
 tick(320)
-load(35, { [0] = sprite(35, 0, 999, true), [1] = odd_box, [2] = new_button })
+load(35, { [0] = sprite(35, 0, 999, true), [1] = odd_box, [2] = new_button, [3] = swapped_button })
 tick(320)
 swapper.stop()
 events.disable()
@@ -310,12 +311,14 @@ local all_unstyled = table.concat(unstyled_lines, "\n")
 assert(all_unstyled:find("--- IF35 (35)", 1, true), "a heading for the window: " .. all_unstyled)
 assert(all_unstyled:find("IF35: rectangle rgba 123456FF filled x1", 1, true), "its odd rectangle")
 assert(all_unstyled:find("RS3_BTN_SOMETHING_NEW (in a group, no image)", 1, true), "and a sprite that's only missing its image")
+assert(all_unstyled:find("IF35: swapped RS3_BTN_MAIN_NEUTRAL_0", 1, true), "and what the plugin swapped, by the game's name")
 local _, odd_box_lines = all_unstyled:gsub("123456FF", "")
 assert(odd_box_lines == 1, "each kind printed once, not every few seconds: " .. odd_box_lines)
 assert(all_unstyled:find("noted the %d+ kinds already showing"), "what showed at the start is noted in one line")
 assert(not all_unstyled:find("--- IF5 ", 1, true), "and not listed")
 
--- holding the mouse still over something prints what's there, smallest first, once per place
+-- pointing at something and pressing Control and Shift prints what's there, smallest first, once
+-- for each press
 local mouse_lines = {}
 print = function (text)
   if tostring(text):find("under the mouse: ") then mouse_lines[#mouse_lines + 1] = tostring(text) end
@@ -330,20 +333,29 @@ local elsewhere = { interfaceID = 36, staticID = 2, categoryID = -1, dynamicID =
 load(36, { [0] = big_box, [1] = small_box, [2] = elsewhere })
 local pointer = { x = 120, y = 110 }
 Mouse = { IsAvailable = function () return true end, GetX = function () return pointer.x end, GetY = function () return pointer.y end }
+local keys = { control = false, shift = false }
+Keyboard = { IsControlDown = function () return keys.control end, IsShiftDown = function () return keys.shift end }
 swapper.start(groups.names(all_on))
 events.enable({ under_mouse = true })
 tick(100)
+assert(#mouse_lines == 0, "nothing printed while the mouse just rests")
+keys.shift = true
+tick(5)
+assert(#mouse_lines == 0, "nor with one key")
+keys.control = true
+tick(30)
 swapper.stop()
 events.disable()
 print = print_before_debugging
 Mouse = nil
+Keyboard = nil
 loaded[36] = nil
 assert(#errors == 0, "no errors while looking under the mouse: " .. tostring(errors[1]))
 local all_mouse = table.concat(mouse_lines, "\n")
 assert(all_mouse:find("at 120,110, 2 things", 1, true), "both boxes under the mouse, the other one not: " .. all_mouse)
 assert(all_mouse:find("2B223FF2") < all_mouse:find("201A13FF"), "smallest first")
 local _, headers = all_mouse:gsub("at 120,110", "")
-assert(headers == 1, "printed once while the mouse stays there")
+assert(headers == 1, "printed once for the press, not while the keys stay down")
 
 -- the layout listing prints where matching swapped sprites are, and the texts over them
 local layout_lines = {}
