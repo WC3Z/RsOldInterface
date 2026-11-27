@@ -621,10 +621,56 @@ assert(plugin_panel.rgb == 0x460000, "in a tinted scheme it's the scheme's colou
 plugin_swapper.stop()
 Plugin.resources.frames_tintable = nil
 assert(plugin_panel.rgb == 0x332E29 and plugin_row.rgb == 0x49371F, "stopping gives back the plugin's own colours")
+
+-- plugins' windows are made in one component of the main interface: what a plugin adds there, or
+-- sets back to its own colour, at any moment (a drop log on each kill, an XP tracker every game
+-- tick) gets the old colour before its first frame, also long after anything else happened
+for _, name in ipairs({ "src/game/interface_watcher", "src/game/recolourer", "src/game/sprite_swapper" }) do package.loaded[name] = nil end
+plugin_swapper = require("src/game/sprite_swapper")
+local windows_layer = { interfaceID = 1477, staticID = 61, categoryID = -1, dynamicID = -1, type = ui.ComponentType.LAYER, visibleGlobal = true, children = {} }
+function windows_layer:IterateDynamicComponents(callback) for _, child in ipairs(self.children) do callback(child) end end
+local tracker_background = rectangle(1477, 61, 1, 0x332E29)
+windows_layer.children = { tracker_background }
+load(1477, { [0] = plugin_layer, [1] = game_brown, [61] = windows_layer })
+plugin_swapper.start(groups.names(all_on))
+tick(400)
+assert(tracker_background.rgb == 0x1E3146, "the tracker's background is recoloured")
+for round = 1, 6 do
+  tick(30)
+  logic()
+  -- The plugin redraws its window: the background set back to its own colour, and a new row.
+  tracker_background.rgb = 0x332E29
+  local new_row = rectangle(1477, 61, 100 + round, 0x332E29)
+  windows_layer.children[#windows_layer.children + 1] = new_row
+  draw()
+  assert(new_row.rgb == 0x1E3146, "round " .. round .. ": a row the plugin added is recoloured before its first frame")
+  if round > 1 then
+    assert(tracker_background.rgb == 0x1E3146, "round " .. round .. ": a background the plugin keeps setting back is recoloured before the next frame")
+  end
+end
+-- the same in a window of the game's: a panel the game keeps setting back is checked after every
+-- update once it has been set back
+local stats_panel = rectangle(34, 0, nil, 0x24211E)
+load(34, { [0] = stats_panel })
+tick(400)
+assert(stats_panel.rgb == 0x152648, "the game's panel is recoloured")
+local caught_before_frame = 0
+for _ = 1, 6 do
+  tick(30)
+  logic()
+  stats_panel.rgb = 0x24211E
+  draw()
+  if stats_panel.rgb == 0x152648 then caught_before_frame = caught_before_frame + 1 end
+end
+assert(caught_before_frame >= 5, "set back again and again: recoloured before the next frame from the second time on, not " .. caught_before_frame .. " of 6")
+plugin_swapper.stop()
+loaded[1477] = nil
+loaded[34] = nil
+
 id.Interface.TOPLEVEL_V2 = nil
 id.Interface.BANK = nil
 loaded[517] = nil
-for _, name in ipairs({ "src/game/recolourer", "src/game/sprite_swapper" }) do package.loaded[name] = nil end
+for _, name in ipairs({ "src/game/interface_watcher", "src/game/recolourer", "src/game/sprite_swapper" }) do package.loaded[name] = nil end
 fresh_swapper = require("src/game/sprite_swapper")
 
 -- a window's close button keeps its own colours in every scheme, and whatever the player's own
@@ -704,11 +750,11 @@ assert(plate_end.image == "img_RS3_PARENT_BANNER_SWORD_RIGHT_NO_PLATE_LONGER_0" 
 fresh_swapper.stop()
 loaded[25] = nil
 
-load(26, { [0] = big_list })
 -- the slow walk over hidden content only visits so many of the parts the game created in one
 -- component at a time; the rest are found when the window shows
 local big_list = { interfaceID = 26, staticID = 0, categoryID = -1, dynamicID = -1, type = ui.ComponentType.LAYER, visibleGlobal = false, children = {} }
 local callbacks_made = 0
+load(26, { [0] = big_list })
 function big_list:IterateDynamicComponents(callback)
   for _, child in ipairs(self.children) do
     callbacks_made = callbacks_made + 1

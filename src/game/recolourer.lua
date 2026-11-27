@@ -39,15 +39,23 @@ local skin_coloured_fields = {
 ---@field bottom number?
 ---@field near_mouse boolean Whether the mouse was near it at the last update.
 ---@field checks_since_place integer How many times it was looked at since its place was last read.
+---@field hot_until integer The update until which it's checked after every update (see hot_updates).
 
 -- Hidden recoloured colours are only checked every this many updates: they can't flash.
 local hidden_check_interval = 10
 -- While it's quiet (nothing from the server, opened, rebuilt or pressed for a few updates), showing ones
 -- are checked every few updates, each in its own turn, and hidden ones more rarely still.
 local quiet_check_interval = 4
+-- A colour that was set back since it was recoloured is checked after every update for this long
+-- (ten seconds), whatever the rest are doing: the same component is set back again and again (a
+-- plugin redrawing its window every game tick), and waiting for its turn showed the plugin's own
+-- colour for a few frames each time.
+local hot_updates = 500
 local near_mouse_margin = 12
 local checks_between_places = 4
 local quiet_hidden_check_interval = 40
+-- The update the colours were last checked after (for what walks find in between).
+local current_update = 0
 -- How many colours were recoloured for the first time, to give each its turn.
 local colours_made = 0
 -- The keys of the recoloured colours that were showing when last looked at, and whether colours
@@ -197,6 +205,9 @@ function recolourer.recolour(component, component_type, walk_kind)
     if known and game_rgb == known.applied_rgb then
         return
     end
+    if known then
+        known.hot_until = current_update + hot_updates
+    end
     if events.enabled then
         events.recolouring(component, field, game_rgb, look_rgb)
     end
@@ -227,6 +238,8 @@ function recolourer.recolour(component, component_type, walk_kind)
         turn = known and known.turn or colours_made,
         near_mouse = false,
         checks_since_place = 0,
+        -- Found set back by a walk: the component is one that gets set back.
+        hot_until = known and known.hot_until or -1,
     }
     if is_showing then
         pcall(note_place, recoloured[key], component)
@@ -250,8 +263,9 @@ end
 -- it if its component is gone.
 ---@param key string
 ---@param colour RecolouredColour
+---@param update_number integer
 ---@return boolean # Whether its component is still there.
-local function check(key, colour)
+local function check(key, colour, update_number)
     local component = find(colour)
     if component == nil then
         recoloured[key] = nil
@@ -271,6 +285,7 @@ local function check(key, colour)
     if look_rgb and write_colour(component, colour.field, look_rgb) then
         colour.game_rgb = game_rgb
         colour.applied_rgb = look_rgb
+        colour.hot_until = update_number + hot_updates
     end
     return true
 end
@@ -284,12 +299,13 @@ end
 ---@param mouse_x number? Where the mouse is, if that can be told.
 ---@param mouse_y number?
 function recolourer.recolour_changed(update_number, is_quiet, mouse_x, mouse_y)
+    current_update = update_number
     local checks_all = update_number % (is_quiet and quiet_hidden_check_interval or hidden_check_interval) == 0
     local checked = 0
     if checks_all then
         showing_keys = {}
         for key, colour in pairs(recoloured) do
-            if check(key, colour) then
+            if check(key, colour, update_number) then
                 checked = checked + 1
                 if colour.visible then
                     showing_keys[#showing_keys + 1] = key
@@ -315,7 +331,8 @@ function recolourer.recolour_changed(update_number, is_quiet, mouse_x, mouse_y)
                 local was_near = colour.near_mouse
                 colour.near_mouse = is_near_mouse(colour, mouse_x, mouse_y)
                 local is_its_turn = not is_quiet or (update_number + colour.turn) % quiet_check_interval == 0
-                if (is_its_turn or colour.near_mouse or was_near) and check(key, colour) then
+                local is_hot = colour.hot_until >= update_number
+                if (is_its_turn or is_hot or colour.near_mouse or was_near) and check(key, colour, update_number) then
                     checked = checked + 1
                 end
             end

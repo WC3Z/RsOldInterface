@@ -129,9 +129,10 @@ local warm_components_per_update = 300
 local most_shown_at_once_to_stay_warm = 5
 local updates_without_warm_after_many_show = 100
 -- Components where the game created parts that were found late are remembered and walked every
--- update from then on (like the layer plugins' windows are made in): at most this many.
+-- update from then on (like the layer plugins' windows are made in): at most this many. Every
+-- update, not every few: plugins rebuild what's in their windows at any moment (a drop log on
+-- each kill, an XP tracker every game tick), and with every few that flashed in their own colours.
 local most_remembered_containers = 24
-local updates_between_quiet_walks_of_remembered = 4
 -- When the game rebuilds something in a fresh or warm interface, the whole interface is walked
 -- before the frame (what's rebuilt often isn't all in one place), but not more often than this.
 local updates_between_rebuild_walks = 3
@@ -145,6 +146,10 @@ local follows_mouse_ids = game_ids.interface_ids({ "TOPLEVEL_V2_HOVER_TARGET", "
 -- The main interface holds every window: it never becomes fresh, nor does what's mounted in it
 -- because of it.
 local main_interface_id = game_ids.interface_id("TOPLEVEL_V2")
+-- The component of the main interface that plugins' windows are made in. It's remembered from
+-- the start, so the first thing a plugin puts in its window doesn't have to be found late first.
+-- (If the game moves it, the new one is learned as before.)
+local plugin_windows_static_id = 61
 -- A walked_at or rebuild_walk_at from long enough ago for any interval to have passed.
 local never_walked = -100
 
@@ -654,13 +659,11 @@ local function age_closely_watched(watch, interface_ids)
     end
 end
 
--- The remembered components are walked often, unless their interface is walked anyway.
+-- The remembered components are walked every update, unless their interface is walked anyway.
 ---@param watch InterfaceWatch
 local function walk_remembered_containers(watch)
-    -- Every update while something may be opening, else every few.
-    local is_due = interface_watcher.is_alert(watch) or watch.update_number % updates_between_quiet_walks_of_remembered == 0
     for _, container in pairs(watch.remembered_containers) do
-        if is_due and not watch.closely_watched[container.interface_id] then
+        if not watch.closely_watched[container.interface_id] then
             interface_walker.visit_static(container.interface_id, container.static_id, watch.visit_as.now, true)
         end
         if events.enabled then
@@ -847,6 +850,13 @@ function interface_watcher.start(subscription_name, visit)
         background_static_id = 0,
         background_missing_in_a_row = 0,
     }
+    if main_interface_id then
+        watch.remembered_containers[main_interface_id .. ":" .. plugin_windows_static_id] = {
+            interface_id = main_interface_id,
+            static_id = plugin_windows_static_id,
+        }
+        watch.remembered_container_count = 1
+    end
     Event.Logic.Subscribe(subscription_name, guard.guarded("in an update", function ()
         watch.update_number = watch.update_number + 1
     end))
