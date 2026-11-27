@@ -65,7 +65,7 @@ local interface_watcher = {}
 -- of that once it's been quiet for a few seconds. Every lookup costs time and leaves garbage for
 -- Lua to free, and most of the time nothing changes.
 local showing_components_per_update = 600
-local showing_components_per_quiet_update = 150
+local showing_components_per_quiet_update = 100
 local busy_updates = 50
 -- The slow walk over everything, and while it's quiet.
 local background_components_per_update = 50

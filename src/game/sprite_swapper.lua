@@ -173,6 +173,8 @@ local function is_due_after_update(state, part)
         return true
     end
     if part.checked_while_hidden then
+        -- (Looking only at the static component a hidden piece is in, and at the piece once that
+        -- shows, was tried: big windows' tabs flashed now and then.)
         return is_alert or (update_number + part.turn) % updates_between_checks_of_frames_when_quiet == 0
     end
     local was_near = part.near_mouse
