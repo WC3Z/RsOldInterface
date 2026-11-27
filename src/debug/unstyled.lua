@@ -1,21 +1,39 @@
--- DEBUG: lists what's showing that the plugin doesn't restyle, to find out what another plugin's
--- windows are made of: plain rectangles whose colour isn't one of the skin's, and sprites the
--- plugin has no image for (or that draw another plugin's image). Each kind is printed once, with
--- how many there are and where.
+-- DEBUG: lists what's showing that the plugin doesn't restyle, to find out what a window is made
+-- of: plain rectangles and text whose colour isn't one of the skin's, and sprites the plugin has no
+-- image for (or that draw another plugin's image). Goes through every interface that's showing.
+-- Each kind is printed once for each interface it's in, with how many there are and where, so
+-- opening a window prints just what's new in it. What's showing when the listing starts (the HUD,
+-- mostly) is only noted, not printed: hundreds of lines nobody asked for, which used to fill the
+-- console before any window was opened.
 local interface_walker = require("src/game/interface_walker")
 local skin_palette = require("src/game/skin_palette")
 local component_fields = require("src/game/component_fields")
+local sprite_groups = require("src/game/sprite_groups")
 local game_ids = require("src/game/game_ids")
+local type_name = require("src/debug/type_names")
 
 local unstyled = {}
 
 local prefix = "[Old Interface] unstyled: "
--- The interfaces looked through: the main one, where plugins' windows are made, and the Bank.
-local interface_names = { "TOPLEVEL_V2", "BANK" }
-local lines_left = 150
--- The kinds printed so far.
+local lines_left = 400
+-- What was printed so far: each interface's name, and each kind in it.
 ---@type table<string, boolean>
 local printed = {}
+-- Whether what was showing at the start has been noted.
+local has_noted_start = false
+
+---@param interface_id integer
+---@return string
+local function interface_name(interface_id)
+    local found, name = pcall(id.Interface.FromID, interface_id)
+    return found and name or tostring(interface_id)
+end
+
+---@param sprite_name string
+---@return string # Whether the plugin would swap the sprite if it had an image for it.
+local function sprite_note(sprite_name)
+    return sprite_groups.group_of(sprite_name) and " (in a group, no image)" or ""
+end
 
 ---@param component ui.Component
 ---@return string? # What kind of unstyled thing the component is, or nil if it's styled or not of interest.
@@ -42,55 +60,75 @@ local function kind_of(component)
         local holder = component_fields.holder(component, field)
         local sprite_id = holder and holder.spriteID
         if sprite_id ~= nil then
+            local sprite_name = game_ids.sprite_name(sprite_id)
             local name = sprite_id == component_fields.runtime_image_id and "a runtime image"
-                or game_ids.sprite_name(sprite_id) or tostring(sprite_id)
-            kinds[#kinds + 1] = (field ~= "" and field .. "=" or "") .. name
+                or sprite_name and sprite_name .. sprite_note(sprite_name) or tostring(sprite_id)
+            kinds[#kinds + 1] = (field ~= component_fields.on_component and field .. "=" or "") .. name
         end
     end
     if #kinds == 0 then
         return nil
     end
-    return string.format("%s %s rgba %08X", tostring(component.type), table.concat(kinds, " "), component.rgba or 0)
+    return string.format("%s %s rgba %08X", type_name(component.type), table.concat(kinds, " "), component.rgba or 0)
+end
+
+---@param line string
+local function print_limited(line)
+    if lines_left > 0 then
+        lines_left = lines_left - 1
+        print(prefix .. line)
+    end
 end
 
 -- Prints the kinds of unstyled things showing now that weren't printed before.
 ---@param parts table<string, SwappedPart> What the plugin has swapped, which is left out.
-function unstyled.report(parts)
-    local found = {}
-    local order = {}
-    for _, interface_name in ipairs(interface_names) do
-        local interface_id = game_ids.interface_id(interface_name)
-        if interface_id and ui.Interfaces:GetInterface(interface_id) then
-            interface_walker.each_component(interface_id, function (component)
-                local key = interface_walker.component_key(component)
-                local is_swapped = false
-                for _, field in ipairs(component_fields.sprite_fields[component.type] or {}) do
-                    if parts[key .. ":" .. field] then
-                        is_swapped = true
-                    end
+---@param interface_ids integer[] The interfaces that are showing.
+function unstyled.report(parts, interface_ids)
+    local is_start = not has_noted_start
+    has_noted_start = true
+    local noted_kinds = 0
+    table.sort(interface_ids)
+    for _, interface_id in ipairs(interface_ids) do
+        local name = interface_name(interface_id)
+        local found = {}
+        local order = {}
+        interface_walker.each_component(interface_id, function (component)
+            local key = interface_walker.component_key(component)
+            local is_swapped = false
+            for _, field in ipairs(component_fields.sprite_fields[component.type] or {}) do
+                if parts[key .. ":" .. field] then
+                    is_swapped = true
                 end
-                local described, kind = pcall(kind_of, component)
-                if not is_swapped and described and kind then
-                    local where = interface_name .. ":" .. component.staticID
-                    local entry = found[kind]
-                    if entry == nil then
-                        entry = { count = 0, where = where, width = component.width, height = component.height }
-                        found[kind] = entry
-                        order[#order + 1] = kind
-                    end
-                    entry.count = entry.count + 1
+            end
+            local described, kind = pcall(kind_of, component)
+            if not is_swapped and described and kind and not printed[name .. " " .. kind] then
+                local entry = found[kind]
+                if entry == nil then
+                    entry = { count = 0, static_id = component.staticID, width = component.width or 0, height = component.height or 0 }
+                    found[kind] = entry
+                    order[#order + 1] = kind
                 end
-            end, true)
+                entry.count = entry.count + 1
+            end
+        end, true)
+        if #order > 0 and not printed[name] and not is_start then
+            print_limited("--- " .. name .. " (" .. interface_id .. ")")
+        end
+        if #order > 0 then
+            printed[name] = true
+        end
+        table.sort(order)
+        for _, kind in ipairs(order) do
+            printed[name .. " " .. kind] = true
+            noted_kinds = noted_kinds + 1
+            local entry = found[kind]
+            if not is_start then
+                print_limited(string.format("%s: %s x%d, like %dx%d at %d", name, kind, entry.count, entry.width, entry.height, entry.static_id))
+            end
         end
     end
-    table.sort(order)
-    for _, kind in ipairs(order) do
-        if not printed[kind] and lines_left > 0 then
-            printed[kind] = true
-            lines_left = lines_left - 1
-            local entry = found[kind]
-            print(string.format("%s%s x%d, like %dx%d in %s", prefix, kind, entry.count, entry.width, entry.height, entry.where))
-        end
+    if is_start then
+        print_limited(string.format("noted the %d kinds already showing in %d windows; open a window to list what's in it", noted_kinds, #interface_ids))
     end
 end
 

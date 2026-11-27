@@ -280,6 +280,71 @@ tick(8)
 assert(loaded[5][1].spriteID == -1, "swapped again after the measuring")
 swapper.stop()
 
+-- the unstyled listing goes through every interface that shows, prints each window's kinds once
+-- under its name, and says which sprites only lack an image
+local unstyled_lines = {}
+print = function (text)
+  if tostring(text):find("unstyled: ") then unstyled_lines[#unstyled_lines + 1] = tostring(text) end
+  if tostring(text):find("error") then errors[#errors + 1] = text end
+end
+names[108] = "RS3_BTN_SOMETHING_NEW"
+local odd_box = { interfaceID = 35, staticID = 1, categoryID = -1, dynamicID = -1, type = ui.ComponentType.RECTANGLE, visibleGlobal = true,
+  rgb = 0x123456, rgba = 0x123456FF, fill = true, width = 60, height = 27 }
+local new_button = sprite(35, 2, 108, true)
+load(35, { [0] = sprite(35, 0, 999, true), [1] = odd_box, [2] = new_button })
+-- Switched on after the swapping started, as main.lua does. What shows at the start is only
+-- noted; a window that opens after is listed.
+loaded[35] = nil
+swapper.start(groups.names(all_on))
+events.enable({ unstyled = true })
+tick(320)
+load(35, { [0] = sprite(35, 0, 999, true), [1] = odd_box, [2] = new_button })
+tick(320)
+swapper.stop()
+events.disable()
+print = print_before_debugging
+loaded[35] = nil
+names[108] = nil
+assert(#errors == 0, "no errors while listing what's unstyled: " .. tostring(errors[1]))
+local all_unstyled = table.concat(unstyled_lines, "\n")
+assert(all_unstyled:find("--- IF35 (35)", 1, true), "a heading for the window: " .. all_unstyled)
+assert(all_unstyled:find("IF35: rectangle rgba 123456FF filled x1", 1, true), "its odd rectangle")
+assert(all_unstyled:find("RS3_BTN_SOMETHING_NEW (in a group, no image)", 1, true), "and a sprite that's only missing its image")
+local _, odd_box_lines = all_unstyled:gsub("123456FF", "")
+assert(odd_box_lines == 1, "each kind printed once, not every few seconds: " .. odd_box_lines)
+assert(all_unstyled:find("noted the %d+ kinds already showing"), "what showed at the start is noted in one line")
+assert(not all_unstyled:find("--- IF5 ", 1, true), "and not listed")
+
+-- holding the mouse still over something prints what's there, smallest first, once per place
+local mouse_lines = {}
+print = function (text)
+  if tostring(text):find("under the mouse: ") then mouse_lines[#mouse_lines + 1] = tostring(text) end
+  if tostring(text):find("error") then errors[#errors + 1] = text end
+end
+local big_box = { interfaceID = 36, staticID = 0, categoryID = -1, dynamicID = -1, type = ui.ComponentType.RECTANGLE, visibleGlobal = true,
+  rgb = 0x201A13, rgba = 0x201A13FF, fill = true, xyGlobal = { x = 0, y = 0 }, width = 400, height = 300 }
+local small_box = { interfaceID = 36, staticID = 1, categoryID = -1, dynamicID = -1, type = ui.ComponentType.RECTANGLE, visibleGlobal = true,
+  rgb = 0x2B223F, rgba = 0x2B223FF2, fill = true, xyGlobal = { x = 100, y = 100 }, width = 50, height = 20 }
+local elsewhere = { interfaceID = 36, staticID = 2, categoryID = -1, dynamicID = -1, type = ui.ComponentType.RECTANGLE, visibleGlobal = true,
+  rgb = 0x123456, rgba = 0x123456FF, fill = true, xyGlobal = { x = 300, y = 200 }, width = 50, height = 20 }
+load(36, { [0] = big_box, [1] = small_box, [2] = elsewhere })
+local pointer = { x = 120, y = 110 }
+Mouse = { IsAvailable = function () return true end, GetX = function () return pointer.x end, GetY = function () return pointer.y end }
+swapper.start(groups.names(all_on))
+events.enable({ under_mouse = true })
+tick(100)
+swapper.stop()
+events.disable()
+print = print_before_debugging
+Mouse = nil
+loaded[36] = nil
+assert(#errors == 0, "no errors while looking under the mouse: " .. tostring(errors[1]))
+local all_mouse = table.concat(mouse_lines, "\n")
+assert(all_mouse:find("at 120,110, 2 things", 1, true), "both boxes under the mouse, the other one not: " .. all_mouse)
+assert(all_mouse:find("2B223FF2") < all_mouse:find("201A13FF"), "smallest first")
+local _, headers = all_mouse:gsub("at 120,110", "")
+assert(headers == 1, "printed once while the mouse stays there")
+
 -- the layout listing prints where matching swapped sprites are, and the texts over them
 local layout_lines = {}
 print = function (text)

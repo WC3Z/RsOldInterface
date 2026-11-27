@@ -77,7 +77,8 @@ sprite_groups.all = {
     },
     {
         name = "rows",
-        patterns = { "^RS3_CONTENT_CONTAINER_", "^RS3_CONTEXTUAL_INPUT_BOX_" },
+        -- AIF_SKILL_SELECT_BTN_1_0/1: the rows of the skill guide (Hero, Skills tab), normal and hovered.
+        patterns = { "^RS3_CONTENT_CONTAINER_", "^RS3_CONTEXTUAL_INPUT_BOX_", "^AIF_SKILL_SELECT_BTN_1_[01]$" },
         changes_often = true,
     },
     {
@@ -216,7 +217,7 @@ sprite_groups.colour_parts = {
     {
         key = "rows",
         label = "List rows and input boxes",
-        patterns = { "^RS3_CONTENT_CONTAINER", "^RS3_CONTEXTUAL_INPUT_BOX", "^INPUT_" },
+        patterns = { "^RS3_CONTENT_CONTAINER", "^RS3_CONTEXTUAL_INPUT_BOX", "^INPUT_", "^AIF_SKILL_SELECT_BTN_1_[01]$" },
     },
     {
         -- Before the buttons, whose patterns match these too.

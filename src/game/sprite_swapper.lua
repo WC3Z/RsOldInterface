@@ -670,7 +670,7 @@ local function before_frame(event)
         recolourer.recolour_changed(watch.update_number, not interface_watcher.is_alert(watch), state.mouse_x, state.mouse_y)
     end
     if events.enabled then
-        events.checked(state.parts, recolourer.count())
+        events.checked(state.parts, recolourer.count(), watch)
     end
     collect_some_garbage()
 end

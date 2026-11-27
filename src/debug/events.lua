@@ -9,8 +9,12 @@
 --
 -- With `cost = true` as well as `profile`, what each step of the plugin's work costs is measured
 -- by leaving it out in turns (see the cost section of src/debug/profile.lua).
--- With `unstyled = true`, what's showing that the plugin doesn't restyle is listed every few
--- seconds (see src/debug/unstyled.lua).
+-- With `unstyled = true`, what's showing that the plugin doesn't restyle, in every interface that
+-- shows, is listed every few seconds (see src/debug/unstyled.lua): open a window, and what's new
+-- in it is printed.
+--
+-- With `under_mouse = true`, holding the mouse still over something prints what's there (see
+-- src/debug/under_mouse.lua).
 --
 -- With `garbage = "generational"` as well as `profile`, Lua frees its garbage another way, to
 -- try against long frames (see src/debug/profile.lua).
@@ -21,6 +25,7 @@ local activity_log = require("src/debug/activity_log")
 local profile = require("src/debug/profile")
 local unstyled = require("src/debug/unstyled")
 local layout = require("src/debug/layout")
+local under_mouse = require("src/debug/under_mouse")
 local interface_walker = require("src/game/interface_walker")
 local component_fields = require("src/game/component_fields")
 local game_ids = require("src/game/game_ids")
@@ -40,6 +45,7 @@ local stats = { frames = 0, checks = 0, swapped_parts = 0, recoloured = 0, reswa
 local stats_logged_at = 0
 -- Whether what's unstyled is listed, and how many updates apart.
 local lists_unstyled = false
+local inspects_under_mouse = false
 local unstyled_interval = 150
 -- The pattern of the sprite names whose layout is printed, if any.
 ---@type string?
@@ -59,10 +65,11 @@ local function is_closely_watched(interface_id)
     return watch ~= nil and watch.closely_watched[interface_id] ~= nil
 end
 
----@param tools { profile: boolean?, activity_log: boolean?, unstyled: boolean?, cost: boolean?, layout: string?, garbage: string?, benchmark: boolean? }
+---@param tools { profile: boolean?, activity_log: boolean?, unstyled: boolean?, under_mouse: boolean?, cost: boolean?, layout: string?, garbage: string?, benchmark: boolean? }
 function events.enable(tools)
     events.enabled = true
     lists_unstyled = tools.unstyled == true
+    inspects_under_mouse = tools.under_mouse == true
     layout_pattern = tools.layout
     activity_log.enabled = tools.activity_log == true
     if tools.profile then
@@ -83,6 +90,7 @@ end
 function events.disable()
     events.enabled = false
     lists_unstyled = false
+    inspects_under_mouse = false
     layout_pattern = nil
     activity_log.enabled = false
     profile.disable()
@@ -294,16 +302,33 @@ function events.frame(event, update, parts, visit)
     profile.frame(event, update, function () return benchmark_subjects(parts, visit) end)
 end
 
+---@return integer[] # The interfaces that were showing when last checked.
+local function showing_interface_ids()
+    local interface_ids = {}
+    for interface_id, showing in pairs(watch.loaded) do
+        if showing then
+            interface_ids[#interface_ids + 1] = interface_id
+        end
+    end
+    return interface_ids
+end
+
 -- An update's looking and checking is done.
 ---@param parts table<string, SwappedPart>
 ---@param recoloured_count integer
-function events.checked(parts, recoloured_count)
+---@param current_watch InterfaceWatch The swapping's watch: the tools can be switched on after the
+--   swapping started, when events.started wasn't called.
+function events.checked(parts, recoloured_count, current_watch)
+    watch = current_watch
     local part_count = 0
     for _ in pairs(parts) do
         part_count = part_count + 1
     end
     if lists_unstyled and update_number() % unstyled_interval == 0 then
-        unstyled.report(parts)
+        unstyled.report(parts, showing_interface_ids())
+    end
+    if inspects_under_mouse then
+        under_mouse.check(parts, showing_interface_ids())
     end
     if layout_pattern and update_number() % unstyled_interval == 0 then
         layout.report(parts, layout_pattern)
