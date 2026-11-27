@@ -82,6 +82,9 @@ local swapping = nil
 -- How much collecting Lua is asked to do after each update: as for this many kilobytes of new
 -- objects, which is about what a quiet update makes.
 local garbage_step_kb = 100
+-- How Lua collected garbage before the plugin switched it (see collect_garbage_generationally).
+---@type string?
+local garbage_mode_before = nil
 -- How many of the parts checked in turns are checked each update, and while it's quiet.
 local in_turns_per_update = 150
 local in_turns_per_quiet_update = 50
@@ -621,11 +624,29 @@ local function check_some_in_turns(state)
 end
 
 -- Every component the plugin looks at is a small object that's thrown away again, tens of kilobytes
--- an update. Left alone, Lua lets that pile up until its memory has about doubled and then frees it
--- all in one frame, which took 30-45 ms every ten or twenty seconds: a visible hitch. So after each
--- update Lua is asked to do a little of that work, and while things are quiet the pile never
--- builds up. A hitch can still follow a busy stretch (asking for more work after a busy update
--- was tried, and it stayed).
+-- an update. Lua's usual way of collecting lets that pile up until its memory has about doubled and
+-- then frees it all in one frame, which took 30-45 ms every few seconds: a visible hitch. Asking
+-- for a little of that work after each update only helped while the plugin kept little else in
+-- memory. Lua's generational mode is made for this: it frees new objects that are already garbage
+-- often and cheaply. With it, memory stayed flat at 13-17 MB with no hitches.
+local function collect_garbage_generationally()
+    if garbage_mode_before == nil then
+        local switched, mode_before = pcall(collectgarbage, "generational")
+        if switched then
+            garbage_mode_before = mode_before
+        end
+    end
+end
+
+-- Gives Lua back the way of collecting it had before the plugin started.
+local function collect_garbage_as_before()
+    if garbage_mode_before ~= nil then
+        pcall(collectgarbage, garbage_mode_before)
+        garbage_mode_before = nil
+    end
+end
+
+-- A little collecting after each update, as well, so it's done between frames.
 local function collect_some_garbage()
     collectgarbage("step", garbage_step_kb)
 end
@@ -695,6 +716,7 @@ end
 ---@param window_look WindowLook? The player's choices for how windows are drawn (see sprite_images); the usual look if left out.
 function sprite_swapper.start(groups, colours, window_look)
     sprite_swapper.stop()
+    collect_garbage_generationally()
     local drawn_colours = sprite_images.use(groups, colours or {}, window_look)
     local watch = interface_watcher.start(subscription_name, visit)
     recolourer.start(groups, drawn_colours, function (component, walk_kind)
@@ -740,6 +762,7 @@ function sprite_swapper.stop()
     Event.KeyDown.Unsubscribe(subscription_name)
     restore(state.parts)
     recolourer.stop()
+    collect_garbage_as_before()
 end
 
 return sprite_swapper

@@ -725,6 +725,27 @@ for round = 1, 6 do
     assert(tracker_background.rgb == 0x1E3146, "round " .. round .. ": a background the plugin keeps setting back is recoloured before the next frame")
   end
 end
+-- a window or tab a plugin keeps hidden there isn't walked, but what it shows is recoloured before
+-- its first frame
+local hidden_window = { interfaceID = 1477, staticID = 61, categoryID = 0, dynamicID = 200, type = ui.ComponentType.LAYER, visibleGlobal = false, children = {} }
+local hidden_window_visits = 0
+function hidden_window:IterateDynamicComponents(callback)
+  hidden_window_visits = hidden_window_visits + 1
+  for _, child in ipairs(self.children) do callback(child) end
+end
+local hidden_row = rectangle(1477, 61, 201, 0x332E29)
+hidden_row.visibleGlobal = false
+hidden_window.children = { hidden_row }
+windows_layer.children[#windows_layer.children + 1] = hidden_window
+tick(30)
+hidden_window_visits = 0
+tick(30)
+assert(hidden_window_visits == 0, "a hidden window's content isn't walked: " .. hidden_window_visits)
+logic()
+hidden_window.visibleGlobal = true
+hidden_row.visibleGlobal = true
+draw()
+assert(hidden_row.rgb == 0x1E3146, "once it shows, it's recoloured before its first frame")
 -- the same in a window of the game's: a panel the game keeps setting back is checked after every
 -- update once it has been set back
 local stats_panel = rectangle(34, 0, nil, 0x24211E)
@@ -1021,6 +1042,17 @@ tick(20)
 collectgarbage = collect_before
 fresh_swapper.stop()
 assert(steps_asked_for == 20, "one step of collecting per update, not " .. steps_asked_for)
+
+-- Lua collects generationally while the plugin runs, and as before once it stops
+collectgarbage("incremental")
+fresh_swapper.start(groups.names(all_on))
+fresh_swapper.start(groups.names(all_on))
+local mode_while_running = collectgarbage("incremental")
+collectgarbage(mode_while_running)
+fresh_swapper.stop()
+local mode_after = collectgarbage("incremental")
+assert(mode_while_running == "generational", "generational while running, not " .. tostring(mode_while_running))
+assert(mode_after == "incremental", "back as before after stopping, also after starting again: " .. tostring(mode_after))
 
 -- a component's type is read from the game once for each time a walk comes to it, not once for
 -- every piece of code that wants to know it

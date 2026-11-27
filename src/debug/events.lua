@@ -16,9 +16,6 @@
 -- With `under_mouse = true`, pointing at something and pressing Control and Shift prints what's
 -- there (see src/debug/under_mouse.lua).
 --
--- With `garbage = "generational"` as well as `profile`, Lua frees its garbage another way, to
--- try against long frames (see src/debug/profile.lua).
---
 -- With `layout = "^RS3_PARENT_BANNER_"`, where the game draws the swapped sprites with matching
 -- names is printed, with the texts over them (see src/debug/layout.lua).
 local activity_log = require("src/debug/activity_log")
@@ -65,7 +62,7 @@ local function is_closely_watched(interface_id)
     return watch ~= nil and watch.closely_watched[interface_id] ~= nil
 end
 
----@param tools { profile: boolean?, activity_log: boolean?, unstyled: boolean?, under_mouse: boolean?, cost: boolean?, layout: string?, garbage: string?, benchmark: boolean? }
+---@param tools { profile: boolean?, activity_log: boolean?, unstyled: boolean?, under_mouse: boolean?, cost: boolean?, layout: string?, benchmark: boolean? }
 function events.enable(tools)
     events.enabled = true
     lists_unstyled = tools.unstyled == true
@@ -75,7 +72,6 @@ function events.enable(tools)
     if tools.profile then
         profile.enable()
         profile.measures_cost = tools.cost == true
-        profile.collect_garbage_as(tools.garbage)
         profile.runs_benchmark = tools.benchmark == true
     end
 end

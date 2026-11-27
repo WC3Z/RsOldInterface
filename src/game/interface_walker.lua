@@ -21,16 +21,21 @@ local collection_types = {
 -- every read from the game costs time.
 -- With a limit, it stops once that many were visited: a list can hold thousands (the Bank's
 -- items), which is too much for one frame.
+-- With showing_only, a hidden one is skipped along with everything inside it.
 ---@param callback fun(component: ui.Component, component_type: string)
 ---@param limit { left: integer }? How many more may be visited; counted down.
+---@param showing_only boolean?
 ---@return fun(child: ui.Component): boolean
-local function visitor_of_created(callback, limit)
+local function visitor_of_created(callback, limit, showing_only)
     local function visit_created(child)
         if limit then
             if limit.left <= 0 then
                 return true
             end
             limit.left = limit.left - 1
+        end
+        if showing_only and not child.visibleGlobal then
+            return false
         end
         local child_type = child.type
         callback(child, child_type)
@@ -72,6 +77,31 @@ function interface_walker.visit_static(interface_id, static_id, callback, visibl
         component:IterateDynamicComponents(visitor_of_created(callback, limit))
     end
     return true, true
+end
+
+-- Visits one static component and what the game created inside it while running, leaving out
+-- everything hidden: hidden created components are skipped along with everything inside them.
+---@param interface_id integer
+---@param static_id integer
+---@param callback fun(component: ui.Component, component_type: string)
+---@return integer # How many components were looked up.
+function interface_walker.visit_showing_static(interface_id, static_id, callback)
+    local component = ui.Interfaces:GetComponent(interface_id, static_id)
+    if not component or not component.visibleGlobal then
+        return 1
+    end
+    local looked_up = 1
+    local component_type = component.type
+    callback(component, component_type)
+    if collection_types[component_type] then
+        local function count_and_visit(child, child_type)
+            looked_up = looked_up + 1
+            callback(child, child_type)
+        end
+        ---@cast component ui.ComponentCollection
+        component:IterateDynamicComponents(visitor_of_created(count_and_visit, nil, true))
+    end
+    return looked_up
 end
 
 -- Goes up the static IDs from 0 until the given function has said no for enough in a row (see

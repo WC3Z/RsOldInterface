@@ -660,16 +660,21 @@ local function age_closely_watched(watch, interface_ids)
 end
 
 -- The remembered components are walked every update, unless their interface is walked anyway.
+-- Only what shows: plugins keep their closed windows, and the tabs that aren't open, hidden in
+-- there, and what the game shows is shown before the walk, in the same update.
 ---@param watch InterfaceWatch
+---@return integer # How many components were looked up.
 local function walk_remembered_containers(watch)
+    local looked_up = 0
     for _, container in pairs(watch.remembered_containers) do
         if not watch.closely_watched[container.interface_id] then
-            interface_walker.visit_static(container.interface_id, container.static_id, watch.visit_as.now, true)
+            looked_up = looked_up + interface_walker.visit_showing_static(container.interface_id, container.static_id, watch.visit_as.now)
         end
         if events.enabled then
             events.remembered_container(container.interface_id, container.static_id)
         end
     end
+    return looked_up
 end
 
 ---@param watch InterfaceWatch
@@ -683,9 +688,10 @@ local function walk_fresh_and_warm(watch)
     table.sort(interface_ids)
     local looked_up = walk_closely_watched(watch, interface_ids)
     age_closely_watched(watch, interface_ids)
-    walk_remembered_containers(watch)
+    local looked_up_in_remembered = walk_remembered_containers(watch)
     if events.enabled then
         events.count("remembered components", watch.remembered_container_count)
+        events.count("lookups in remembered components", looked_up_in_remembered)
         events.count("lookups in fresh interfaces", looked_up)
         events.count("fresh interfaces", #interface_ids)
     end

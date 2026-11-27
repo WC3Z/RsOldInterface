@@ -568,17 +568,6 @@ function profile.frame(event, update_number, subjects)
     end
 end
 
--- GARBAGE COLLECTION. The plugin asks Lua to collect a little after every update (see
--- collect_some_garbage in sprite_swapper). To try Lua 5.4's other mode, made for lots of
--- short-lived objects, against that: "generational".
----@param mode "generational"|nil
-function profile.collect_garbage_as(mode)
-    if mode == "generational" then
-        local worked, problem = pcall(collectgarbage, "generational")
-        print(string.format("%sgarbage collection: generational %s", prefix, worked and "on" or "isn't available: " .. tostring(problem)))
-    end
-end
-
 -- Called once after each update's work.
 function profile.after_update()
     if profile.enabled then

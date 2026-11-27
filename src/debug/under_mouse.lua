@@ -41,8 +41,8 @@ end
 local function describe(component, parts)
     local component_type = component.type
     local key = interface_walker.component_key(component)
-    local text = string.format("%s %s %s size %.0fx%.0f", interface_name(component.interfaceID), key, component_types.name(component_type),
-        component.width, component.height)
+    local text = string.format("%s %s %s size %.0fx%.0f%s", interface_name(component.interfaceID), key, component_types.name(component_type),
+        component.width, component.height, component.visibleGlobal and "" or " (reports hidden)")
     if component_type == ui.ComponentType.RECTANGLE then
         return text .. string.format(" rectangle rgba %08X%s", component.rgba, component.fill and " filled" or " outline")
     end
