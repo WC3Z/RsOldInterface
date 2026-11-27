@@ -29,6 +29,9 @@ local game_ids = require("src/game/game_ids")
 
 local events = {}
 
+-- Counts the frames, to tell in traces whether two changes were in the same one.
+local frame_number = 0
+
 events.enabled = false
 
 -- The watch of the swapping that's running, to tell which update it is and which interfaces are
@@ -139,7 +142,9 @@ function events.already_swapped(component, field, parts)
     if part then
         activity_log.frame_piece(component, part.game_sprite_id)
     else
-        activity_log.trace(update_number(), component.interfaceID, component_fields.runtime_image_id, key .. " shows an image the plugin didn't set")
+        if activity_log.traces_foreign_images then
+            activity_log.trace(update_number(), component.interfaceID, component_fields.runtime_image_id, key .. " shows an image the plugin didn't set")
+        end
     end
 end
 
@@ -220,9 +225,14 @@ end
 ---@param sprite_id integer The sprite the game gave it.
 ---@param was_checked_every_update boolean
 ---@param was_rebuilt boolean Whether it was taken as the game rebuilding the component.
-function events.swapped_again(key, part, sprite_id, was_checked_every_update, was_rebuilt)
-    activity_log.trace(update_number(), part.interface_id, sprite_id, string.format("%s swapped again before frame (was %d, %s, %s)",
-        key, part.game_sprite_id, part.visible and "showing" or "hidden", was_checked_every_update and "every update" or "in turns"))
+---@param is_between_updates boolean
+function events.swapped_again(key, part, sprite_id, was_checked_every_update, was_rebuilt, is_between_updates)
+    local found_mouse, mouse_x, mouse_y = pcall(function () return Mouse.GetX(), Mouse.GetY() end)
+    local mouse = found_mouse and string.format("mouse %s,%s", tostring(mouse_x), tostring(mouse_y)) or "mouse unknown"
+    local place = part.left and string.format("at %.0f,%.0f-%.0f,%.0f", part.left, part.top, part.right, part.bottom) or "place unknown"
+    activity_log.trace(update_number(), part.interface_id, sprite_id, string.format("%s swapped again before frame %d (was %d, %s, %s, %s, %s, %s)",
+        key, frame_number, part.game_sprite_id, part.visible and "showing" or "hidden", was_checked_every_update and "every update" or "in turns",
+        is_between_updates and "between updates" or "after an update", place, mouse))
     stats.reswapped = stats.reswapped + 1
     if sprite_id == part.game_sprite_id then
         stats.rebuilt[part.interface_id] = (stats.rebuilt[part.interface_id] or 0) + 1
@@ -289,6 +299,7 @@ end
 ---@param parts table<string, SwappedPart>
 ---@param visit fun(component: ui.Component, component_type: string, walk_kind: WalkKind)
 function events.frame(event, update, parts, visit)
+    frame_number = frame_number + 1
     stats.frames = stats.frames + 1
     if activity_log.enabled and watch and update - stats_logged_at >= stats_interval then
         stats_logged_at = update

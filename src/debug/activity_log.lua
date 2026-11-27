@@ -97,7 +97,10 @@ end
 
 -- The interfaces whose swaps are traced one by one (see activity_log.trace), by name.
 activity_log.traced_interfaces = { ESCAPE_MENU = true }
-local trace_lines_left = 300
+-- Whether parts showing an image the plugin didn't set (item icons, other plugins' images) are
+-- traced too: there can be many, every few updates.
+activity_log.traces_foreign_images = false
+local trace_lines_left = 600
 
 -- What happens to one swapped part in a traced interface: swapped by the walk, swapped again
 -- before a frame, or gone.

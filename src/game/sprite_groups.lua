@@ -233,9 +233,11 @@ sprite_groups.colour_parts = {
         patterns = { "^RS3_CONTENT_CONTAINER", "^RS3_CONTEXTUAL_INPUT_BOX", "^INPUT_", "^AIF_SKILL_SELECT_BTN_1_[01]$", "^AIF_BRONZE_MOTTLED_BUTTON_" },
     },
     {
-        -- Before the buttons, whose patterns match these too.
+        -- Before the buttons, whose patterns match these too. A window's red close X keeps its own
+        -- colours (see own_colour_patterns): of the close buttons, only what's behind the X takes
+        -- this colour.
         key = "small_buttons",
-        label = "Close and +/- buttons",
+        label = "+/- buttons and close backings",
         patterns = {
             "^RS3_BTN_[A-Z]+CREASE_",
             "^RS3_BTN_MODAL_WINDOW_1_CLOSE_",

@@ -418,6 +418,7 @@ end
 ---@param key string
 ---@param part SwappedPart
 ---@param is_between_updates boolean Whether this is a frame between updates, where only hot parts are checked.
+---@return boolean # Whether it was swapped again.
 local function swap_again_if_changed(state, key, part, is_between_updates)
     local watch = state.watch
     local holder, component, sprite_id = find(part)
@@ -430,7 +431,7 @@ local function swap_again_if_changed(state, key, part, is_between_updates)
         if events.enabled then
             events.gone(key, part)
         end
-        return
+        return false
     end
     part.visible = component.visibleGlobal
     -- Windows get moved and lists scrolled, so where the part is has to be read again. It only
@@ -454,7 +455,8 @@ local function swap_again_if_changed(state, key, part, is_between_updates)
     if look then
         image, changing_image_name = sprite_images.image_at(component, sprite_id, look)
     end
-    if look and component_fields.set_sprite(holder, image) then
+    local was_swapped = look ~= nil and component_fields.set_sprite(holder, image)
+    if was_swapped then
         part.changing_image_name = changing_image_name
         local was_checked_every_update = is_checked_every_update(state.watch, part)
         local was_hot = state.hot_until[key] ~= nil
@@ -470,7 +472,7 @@ local function swap_again_if_changed(state, key, part, is_between_updates)
             mark_in_use(state, part.interface_id, part.static_id)
         end
         if events.enabled then
-            events.swapped_again(key, part, sprite_id, was_checked_every_update, was_rebuilt)
+            events.swapped_again(key, part, sprite_id, was_checked_every_update, was_rebuilt, is_between_updates)
         end
         -- What the game shows now is what it should get back when stopped.
         part.game_sprite_id = sprite_id
@@ -479,6 +481,7 @@ local function swap_again_if_changed(state, key, part, is_between_updates)
         local current_look = sprite_images.look_of(part.game_sprite_id)
         part.game_rgb, part.applied_rgb = tint_part(holder, part.field, current_look and current_look.tint, part)
     end
+    return was_swapped
 end
 
 -- Hot parts are checked before every frame (see the top of the file).
@@ -526,6 +529,28 @@ local function list_parts_checked_often(state)
     state.updates_between_alert_checks = 1 + #keys // most_alert_checks_per_update
 end
 
+-- A button is often made of pieces side by side, like a left end, a middle and a right end, and
+-- the game gives them all their hover sprite at once. Only the piece the mouse is over is near
+-- it, so when that one has changed, the others in the same component are checked too: otherwise
+-- the ends showed the game's hover sprite for a frame, between updates until the next update and
+-- after one until their own check (every second update, a little away from the mouse).
+---@param state Swapping
+---@param changed_containers table<string, boolean> "interface:static" of the changed parts.
+---@param is_between_updates boolean Between updates the hot parts were checked already.
+---@return integer # How many parts were checked.
+local function check_beside_changed(state, changed_containers, is_between_updates)
+    local checked = 0
+    for _, key in ipairs(state.checked_often) do
+        local part = state.parts[key]
+        local was_checked = is_between_updates and state.hot_until[key] ~= nil
+        if part and not was_checked and changed_containers[part.interface_id .. ":" .. part.static_id] then
+            swap_again_if_changed(state, key, part, is_between_updates)
+            checked = checked + 1
+        end
+    end
+    return checked
+end
+
 -- Checks what the mouse is over, before every frame: the game gives a button its hover sprite in
 -- whatever frame the mouse arrives, not just after an update.
 -- - Often-checked parts near the mouse, on the frames between updates (after an update they're
@@ -543,12 +568,19 @@ local function check_parts_under_mouse(state, is_between_updates)
     end
     local checked = 0
     if is_between_updates then
+        local changed_containers = nil
         for _, key in ipairs(state.checked_often) do
             local part = state.parts[key]
             if part and state.hot_until[key] == nil and is_near_mouse(state, part, near_mouse_margin) then
-                swap_again_if_changed(state, key, part, true)
+                if swap_again_if_changed(state, key, part, true) then
+                    changed_containers = changed_containers or {}
+                    changed_containers[part.interface_id .. ":" .. part.static_id] = true
+                end
                 checked = checked + 1
             end
+        end
+        if changed_containers then
+            checked = checked + check_beside_changed(state, changed_containers, true)
         end
     else
         -- Once an update is enough for these: most really are hidden, under what the mouse is over.
@@ -579,15 +611,22 @@ local function check_parts_checked_every_update(state)
     end
     local checked = 0
     check_parts_under_mouse(state, false)
+    local changed_containers = nil
     for _, key in ipairs(state.checked_often) do
         local part = state.parts[key]
         if part and is_due_after_update(state, part) then
             if events.enabled then
                 events.checked_every_update(part)
             end
-            swap_again_if_changed(state, key, part, false)
+            if swap_again_if_changed(state, key, part, false) then
+                changed_containers = changed_containers or {}
+                changed_containers[part.interface_id .. ":" .. part.static_id] = true
+            end
             checked = checked + 1
         end
+    end
+    if changed_containers then
+        checked = checked + check_beside_changed(state, changed_containers, false)
     end
     if events.enabled then
         events.count("parts checked every update", checked)

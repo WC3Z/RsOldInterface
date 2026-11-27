@@ -934,6 +934,41 @@ hover_button.spriteID = 102
 mouse.x, mouse.y = 110, 205
 draw()
 assert(hover_button.spriteID == -1, "hover sprite given between updates: swapped again before that frame")
+-- a button made of pieces side by side (the Trade window's Accept): the game gives them all their
+-- hover sprite at once, and the ends, away from the mouse over the middle, are swapped before that
+-- frame too
+local trade_button = { interfaceID = 27, staticID = 4, categoryID = -1, dynamicID = -1, type = ui.ComponentType.LAYER, visibleGlobal = true, children = {} }
+function trade_button:IterateDynamicComponents(callback) for _, child in ipairs(self.children) do callback(child) end end
+local button_pieces = {}
+for index, left in ipairs({ 700, 725, 775 }) do
+  local piece = sprite(27, 4, 101, true)
+  piece.categoryID, piece.dynamicID = 0, index
+  piece.xyGlobal, piece.width, piece.height = { x = left, y = 600 }, index == 2 and 50 or 25, 27
+  button_pieces[index] = piece
+end
+trade_button.children = button_pieces
+loaded[27][4] = trade_button
+tick(400)
+assert(button_pieces[1].spriteID == -1 and button_pieces[3].spriteID == -1, "the button's pieces are swapped")
+mouse.x, mouse.y = 750, 610
+tick(3)
+logic() draw()
+for _, piece in ipairs(button_pieces) do piece.spriteID = 102 end
+draw()
+for index, piece in ipairs(button_pieces) do
+  assert(piece.spriteID == -1, "piece " .. index .. " of a hovered button: swapped again before that frame")
+end
+-- and when the game gives them their hover sprite in an update, the ends, which are only checked
+-- every few updates (away from the mouse a little), are swapped before the next frame too
+for round = 1, 4 do
+  tick(30)
+  logic()
+  for _, piece in ipairs(button_pieces) do piece.spriteID = 101 + round % 2 end
+  draw()
+  for index, piece in ipairs(button_pieces) do
+    assert(piece.spriteID == -1, "round " .. round .. ", piece " .. index .. " of a button hovered in an update: swapped before the frame")
+  end
+end
 -- a recoloured panel the mouse is over gets its colour back before the next frame when the game
 -- sets its own again (as it does when the mouse comes over it or leaves); one elsewhere, within a
 -- few updates
