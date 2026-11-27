@@ -64,7 +64,8 @@ sprite_groups.all = {
         -- The edges and corners of the frames inside windows, like around the Bank's item area and
         -- side panels, and round the boxes in plugins' windows.
         name = "content_frames",
-        patterns = { "^RS3_PARENT_CONTENT_TAB_FRAME_%d$", "^RS3_CONTENT_FRAME_%d$" },
+        -- RS3_ICON_SLOT_40PX_*: item slots, like in the drop log plugin's window.
+        patterns = { "^RS3_PARENT_CONTENT_TAB_FRAME_%d$", "^RS3_CONTENT_FRAME_%d$", "^RS3_ICON_SLOT_40PX_%d$" },
         changes_often = false,
     },
     {
